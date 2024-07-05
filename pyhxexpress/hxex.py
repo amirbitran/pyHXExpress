@@ -51,6 +51,8 @@ colors2d = [mpl_colors_dark, mpl_colors, mpl_colors_light,mpl_colors_light2]
 import warnings
 warnings.simplefilter (action='ignore', category=FutureWarning)
 
+
+
 # class dotdict(dict):
 #     """dot.notation access to dictionary attributes"""
 #     __getattr__ = dict.get
@@ -904,7 +906,7 @@ def fit_bootstrap(p0_boot, bounds, datax, datay, sigma_res=None,yerr_systematic=
     if sigma_res==None:
         # Fit first time if no residuals
         pfit, perr = curve_fit( n_fitfunc, datax, datay, p0, maxfev=int(1e6), 
-                                        bounds = bounds, nan_policy='omit'   )
+                                        bounds = bounds  )
 
         print("Ran initial bootstrap curve_fit to generate residuals")
 
@@ -937,7 +939,7 @@ def fit_bootstrap(p0_boot, bounds, datax, datay, sigma_res=None,yerr_systematic=
         try:
             #print(len(p0),len(bounds[0]),len(bounds[1]))
             randomfit, randomcov = curve_fit( n_fitfunc, datax, randomdataY, p0, maxfev=int(1e6), 
-                                    bounds = bounds, nan_policy='omit'   )
+                                    bounds = bounds  )
         except RuntimeError:
             break
         
@@ -1285,7 +1287,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     p0_UD = (0, 0.05, 0.05, 1.0 ) #scaler, nex, mu, frac  #AB: nex is the nubmer of exchangeable dueterons, mu is the probabilty that each exchanges, frac is the fraciton associated w the current mode, but since it's only one mode, that value is 1
                     try:
                         fit, covar = curve_fit( n_fitfunc, len(y)-1, y/np.sum(y), p0=p0_UD, maxfev=int(1e6), 
-                                                bounds = bounds, nan_policy='omit'   ) 
+                                                bounds = bounds   ) 
                         #AB: as usual for scipy.optimize.curvefit, we first give it the fitting ucntion, followed by the x values (which in this case is just a single integer that the funciton later ocnverts to #deut values), y values, and a parameter guess
                         scaler,nexs,mus,fracs = get_params(*fit,sort=True,norm=True,unpack=True)
                         scaler = np.power( 10.0, scaler )  
@@ -1314,7 +1316,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     p0_TD = (0, max_n_amides - 1, 0.8, 1.0 )
                     try: #AB: now fit totally deuterated data if we have that
                         fit, covar = curve_fit( n_fitfunc, len(y)-1, y/np.sum(y), p0=p0_TD, maxfev=int(1e6), 
-                                                bounds = bounds, nan_policy='omit'   )
+                                                bounds = bounds,   )
                         scaler,nexs,mus,fracs = get_params(*fit,sort=True,norm=True,unpack=True)
                         scaler = np.power( 10.0, scaler )  
                         fit_y = scaler * fitfunc( len(y)-1, nexs[0], mus[0], ) * np.sum(y)
@@ -1466,7 +1468,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                             rss = calc_rss( y_norm, fit_y, )
                         else: #AB: fit to the curent # of curves
                             fit, covar = curve_fit( n_fitfunc, n_bins, y_norm, p0=initial_estimate, maxfev=int(1e6), 
-                                                    bounds = bounds, nan_policy='omit'   )
+                                                    bounds = bounds  )
                             fit_y = n_fitfunc( n_bins, *fit )
                             rss = calc_rss( y_norm, fit_y, )
                             #bestifit = 1
@@ -1477,7 +1479,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                                 initial_estimate, bounds = init_params(n_curves,max_n_amides,seed=seed)
                                 
                                 newfit, newcovar = curve_fit( n_fitfunc, n_bins, y_norm, p0=initial_estimate, maxfev=int(1e6), 
-                                                    bounds = bounds, nan_policy='omit'   )
+                                                    bounds = bounds   )
                                 new_fit_y = n_fitfunc( n_bins, *newfit )
                                 new_rss = calc_rss( y_norm, new_fit_y, )
                                 #print("trying",ifits,"of ",config.BestFit_of_X," fits:",initial_estimate,new_rss)
