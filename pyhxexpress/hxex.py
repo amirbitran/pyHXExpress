@@ -1,10 +1,5 @@
 '''
-pyHXEXPRESS v0.0.100
-
-Copyright 2024 Lisa M Tuttle
-
-https://github.com/tuttlelm/pyHXExpress
-
+pyHXEXPRESS
 '''
 #%matplotlib widget 
 import numpy as np, pandas as pd 
@@ -34,7 +29,11 @@ from datetime import datetime
 from collections import Counter
 from Bio import SeqIO
 
-from . import config
+from . import config 
+
+import copy as cp
+
+import warnings
 
 rng=np.random.default_rng(seed=config.Random_Seed)
 
@@ -87,12 +86,18 @@ def write_parameters(write_dir=os.getcwd(),overwrite=False):
         file needs to be in same file location as the current working directory set in the notebook (this is the default save location)
     '''
 
+    #all_params = ['Allow_Overwrite', 'BestFit_of_X', 'Binomial_dCorr', 'Data_DIR', 'Data_Type', 'DiffEvo_kwargs', 'DiffEvo_threshold','Dfrac', 'Env_limit', 
+    #              'Env_threshold', 'FullDeut_Time', 'Hide_Figure_Output', 'Keep_Raw', 'Limit_by_envelope', 'Max_Pops', 'Metadf_File', 'Min_Pops', 'Nboot', 
+    #              'Ncurve_p_accept', 'Nex_Max_Scale', 'Nterm_subtract', 'Output_DIR', 'Overlay_replicates', 'Peak_Resolution', 'Pop_Thresh', 'Preset_Pops', 
+    #              'Preset_Pops_File', 'process_ALL', 'Random_Seed', 'Read_Spectra_List', 'Residual_Cutoff','Save_Spectra', 'Scale_Y_Values', 'setNoise', 
+    #              'SVG', 'Test_Data', 'Use_DiffEvo', 'User_mutants', 'User_peptides', 'WRITE_PARAMS', 'Y_ERR', 'Zero_Filling']
+    #AB commented out the above. In lieu, AB has the following which includes the spuriosu peak paramteres
     all_params = ['Allow_Overwrite', 'BestFit_of_X', 'Binomial_dCorr', 'Data_DIR', 'Data_Type', 'DiffEvo_kwargs', 'DiffEvo_threshold','Dfrac', 'Env_limit', 
                   'Env_threshold', 'FullDeut_Time', 'Hide_Figure_Output', 'Keep_Raw', 'Limit_by_envelope', 'Max_Pops', 'Metadf_File', 'Min_Pops', 'Nboot', 
                   'Ncurve_p_accept', 'Nex_Max_Scale', 'Nterm_subtract', 'Output_DIR', 'Overlay_replicates', 'Peak_Resolution', 'Pop_Thresh', 'Preset_Pops', 
                   'Preset_Pops_File', 'process_ALL', 'Random_Seed', 'Read_Spectra_List', 'Residual_Cutoff','Save_Spectra', 'Scale_Y_Values', 'setNoise', 
-                  'SVG', 'Test_Data', 'Use_DiffEvo', 'User_mutants', 'User_peptides', 'WRITE_PARAMS', 'Y_ERR', 'Zero_Filling']
-
+                  'SVG', 'Test_Data', 'Use_DiffEvo', 'User_mutants', 'User_peptides', 'WRITE_PARAMS', 'Y_ERR', 'Zero_Filling', 'FilterSpuriousPeaks', 'Spurious_peak_thresh']
+    
     filename = "hdxms_params_"+config.date+".py"
     write_file = os.path.join(write_dir,filename)
     if not overwrite:
@@ -200,10 +205,17 @@ def get_metadf():
 
         elif config.Data_Type == 2:
             fasta_files = [ f for f in os.listdir(config.Data_DIR) if f[-6:]=='.fasta'  ]
+            #print(fasta_files)
             if len(fasta_files)==0: print("no fasta files found")
             mutants = [ff.split('.')[0] for ff in fasta_files]
+            #display(mutants)
             mutant_dirs = [os.path.split(f)[-1] for f in os.scandir(os.path.join(config.Data_DIR)) if f.is_dir()]
+            #display(mutant_dirs)
+
+            
             mutants = [o for o in mutant_dirs if o in mutants]  #ignore any extra fasta files
+            #display(mutants)
+
 
             if (not config.process_ALL) and (config.User_mutants[0].lower() != 'all'): 
                 check = all(item in mutants for item in config.User_mutants)
@@ -467,7 +479,7 @@ def read_specexport_data(csv_files,spec_path,row,keep_raw,mod_dict={}):
         else: time = float(fileinfo[0][:-1]) * np.power(60.0,'smh'.find(fileinfo[0][-1]))
         raw = pd.read_csv( os.path.join(spec_path,f),delimiter=",",header=None, names=["mz","Intensity"]).dropna()
         raw = raw.sort_values('mz').reset_index()
-        peaks = peak_picker( raw, row['peptide'], row['charge'],resolution=config.Peak_Resolution,mod_dict=mod_dict )
+        peaks = peak_picker( raw, row['peptide'], row['charge'],resolution=config.Peak_Resolution,mod_dict=mod_dict ) #AB: This specifically includes data at m/z values expected for hte sequence
         peaks['time']=time
         peaks['rep']=rep
         peaks['data_id']=row.name
@@ -659,27 +671,39 @@ def get_mz_env(value, df, colname='Intensity',pts=False):
     '''
     get mz values at value = envelope_height (e.g. 0.1*maxIntensity)
     to define the envelope width, for assessment of expected polymodal fits
+
+    Notes by AB:
+    This returns the first and last m/z value at which the intensity is at least some value (which we often set to 0.1*max intensity but we must specify that)
+    #if pts=True, it also returns the y value at the leftmost point of the envelope (whcih if a perfectly symmetrical envelope, will be "value", but for an undeuterated short peptide, it may be higher than that)
+    value is the maximum intensity to include in envelope, often set to 0.1* maxIntensity, but that 0.1 can be modulated usign the Env_threshold paramter in config
+
     '''
     df = df.copy().reset_index()
-    boolenv = df[colname].gt(value)
+    boolenv = df[colname].gt(value) #AB: checks all the intensities and determines whether they are larger tahan VALUE (which is typcially, again, 0.1* max intensity)
+    #AB: the above returns a bunch of True or False values to indeicate whether the inequality descried above is satisfied at each index
+
     #envpts = boolenv.value_counts()[True] # number of points in envelope
-    loweridx = df[colname].where(boolenv).first_valid_index()
+    loweridx = df[colname].where(boolenv).first_valid_index() #AB: first index for whcih intensity is above threshold
     upperidx = df[colname].where(boolenv).last_valid_index()
-    if df[colname].iloc[0] > value:
+
+    #AB: point of the next few lines is just to figure out the indices and m/z values in whcih the intensity is at least 10% of the maximum
+    if df[colname].iloc[0] > value:  #in this case, the very first index is already more intense than the threshold value
         min_mz = df['mz'].iloc[0] #envelope starts with first datapoint
         left_Int = df[colname].iloc[0] 
     else:     
-        x1a = df[colname].iloc[loweridx]
-        x1b = df[colname].iloc[loweridx-1]
-        y1a = df['mz'].iloc[loweridx]
-        y1b = df['mz'].iloc[loweridx-1]
-        min_mz = y1a + (y1b - y1a) * (value - x1a)/(x1b - x1a)
+        x1a = df[colname].iloc[loweridx] #AB: extracts the intensity at the first index where intensity is sufficient
+        x1b = df[colname].iloc[loweridx-1] #AB: extracts the intensity immediately before the first index above
+        y1a = df['mz'].iloc[loweridx] #AB: extract the m/z value at the first index where intensity is sufficient
+        y1b = df['mz'].iloc[loweridx-1] #AB: extract the m/z value immediately before the first index above
+        min_mz = y1a + (y1b - y1a) * (value - x1a)/(x1b - x1a)  
+        #notes by AB:  The above formula is simply doing a local linear fit of the intensity vs m/z profile and estimating the first m/z value at which the intensity would exceed the threshold
+        #in practice ends up being very close to y1a
         left_Int = value
     
-    if df[colname].iloc[-1] > value:
-        max_mz = df['mz'].iloc[-1] #envelope goes to end of datapoints, poorly picked masspec?
+    if df[colname].iloc[-1] > value:  #AB: in this case, the very last index is still more intense than the threshold value
+        max_mz = df['mz'].iloc[-1] #AB: envelope goes to end of datapoints, poorly picked masspec?
     else:
-        x2a = df[colname].iloc[upperidx]
+        x2a = df[colname].iloc[upperidx]  #AB: all of these are very similar to the x1a,b and y1a,b calcualtions, only now pertaining to 
         x2b = df[colname].iloc[upperidx+1]
         y2a = df['mz'].iloc[upperidx]
         y2b = df['mz'].iloc[upperidx+1]
@@ -696,7 +720,7 @@ def nCk_real(n,k):
     '''
     #print("n,k:",n,k)
     if n == k: return 1.0
-    elif n - k + 1 <= 0: return 0.0
+    elif n - k + 1 <= 0: return 0.0 #AB: for k greater than n (i.e. k at least n+1), the calculation n choose k doesn't make sense! so we output 0
     #if n - k <= 0: return 0.0
     elif n+k > 50: # https://stats.stackexchange.com/questions/72185/how-can-i-prevent-overflow-for-the-gamma-function
         log_nCk = lgamma(n+1) - lgamma(k+1) - lgamma(n-k+1)
@@ -706,10 +730,17 @@ def nCk_real(n,k):
 def binom(bins, n, p):
     '''
     basic (but not simple) binomial function
-    '''      
+    AB: bins is the # of bins at which we compute the binomial distribution(e.g. if bins=5, then we compute it at x=0,1,2,3,4 )
+    n is the number of coin flips
+    p is the probability that each one is heads
 
-    k = np.arange(bins+1).astype('float64')
-    nCk = [nCk_real(n,y) for y in k]
+    A note that this is a slightly more general binomial distribution. In general, the binomial is normalized only if the random variable takes on values from 0 all the way to n
+    But this version allows the domain to be less than that (or more than that in which case the binomial is set to 0 at values higher than n)
+    i.e. if we set bins to a value less than n, then it will compute the binomial at all the specified values, and then normalize by the sum
+     '''      
+
+    k = np.arange(bins+1).astype('float64') #AB: get our x domain at which we want to compute binomial
+    nCk = [nCk_real(n,y) for y in k] #n choose y for each value of y in our domain k
 
     with np.errstate(all='ignore'):
         # suppress errors: np.power may nan or overflow but we fix it after
@@ -722,18 +753,18 @@ def binom(bins, n, p):
         
         
         t_fp1, t_fp2, t_binoval = [], [], []
-        for ki in k.astype(int):
-            if nCk[ki] == 0:
+        for ki in k.astype(int): #AB: compute the binomial at each value ki in our domain k
+            if nCk[ki] == 0: #AB: this is an edge case in case we give it a k range that goes above n
                 t_binoval += [0.0]
                 t_fp1 += [0.0]
                 t_fp2  += [0.0]
             else: 
-                t_fp1 += [np.power(p,ki)]
+                t_fp1 += [np.power(p,ki)]  #raise p to k^i
                 fp2_val = np.clip(np.float_power(1-p,n-ki),sys.float_info.min,sys.float_info.max)
-                t_fp2  += [fp2_val]
-                t_binoval += [nCk[ki] * t_fp1[ki] * t_fp2[ki]]
+                t_fp2  += [fp2_val] #raise 1-p to n-k_i
+                t_binoval += [nCk[ki] * t_fp1[ki] * t_fp2[ki]] #AB: multiply the three familiar factors in our binomial! 
 
-    binoval = np.array(t_binoval/sum(t_binoval))
+    binoval = np.array(t_binoval/sum(t_binoval)) #this is basically the binomial distribution but renormalized in case our domain doesn't go all the way up to n
     binoval = np.nan_to_num(binoval,nan=0.0)
        
     return binoval
@@ -742,16 +773,18 @@ def binom_isotope(bins, n,p):
     '''
     binomial function using the Natural Abundance isotopic envelope
     '''
-    bs = binom(bins,n,p)
-    newbs=np.zeros(len(bs) + len(Current_Isotope)+1)
-    for i in range(len(bs)):
+    bs = binom(bins,n,p) #AB: simple binomial distribution evaluted between 0 and bins-1. We compute this because this models the deuteration process
+    newbs=np.zeros(len(bs) + len(Current_Isotope)+1) #AB: this will be our convolution between the natural isotopic distribution and our binomial deuteration
+    for i in range(len(bs)): #AB: loop over all values for our natural isotopic distribution (j) and all possible values for # of deuterons governed by binomial (i) to form the convolution
         for j in range(len(Current_Isotope)):     
-            newbs[i+j] += bs[i]*Current_Isotope[j]  
+            newbs[i+j] += bs[i]*Current_Isotope[j]   #AB: the probabitly that the natural isotopic distr has value j and that the deuterated distribution has value i is simply their product
     return newbs[0:bins+1]
 
 def n_binomials( bins, *params ): #allfracsversion
     '''
     basic binomial for n populations
+    note by AB: bins is a single integer that tells you how many values of x you want to compute the binomial at
+    for instnac eif bins=5 you'll compute the value for the binomials at x=0, 1, 2, 3 and 4
     '''
     # params takes the form [scaler, n_1, ..., n_n, mu_1, ..., mu_n, frac_1, ..., frac_n] 
     n_curves = int( (len(params)+1) / 3.0 )
@@ -762,12 +795,14 @@ def n_binomials( bins, *params ): #allfracsversion
     frac_array = np.array( params[ -n_curves: ] )
     frac_array = frac_array/np.sum(frac_array)
     poissons = [ frac * binom( bins,n, mu ) for frac, n, mu in zip( frac_array, n_array, mu_array ) ]
+    #AB: these are binomials, not poissons. Als note that mu is the same as the probability p
     return np.power( 10.0, log_scaler ) * np.sum( poissons, axis=0, )
 
 
 def n_binom_isotope( bins, *params ): #allfracsversion
     '''
     n population binomial using the Natural Abundance isotopic envelope
+    AB: this is a probabiltiy distribution that results from the convolution of the natural isotopic distribution with some number of binomials corresponding to different deuterated populations
     '''
     # params takes the form [ scaler, mu_1, ..., mu_n, frac_1, ..., frac_n] 
     n_curves = int(( len(params) + 1) / 3.0 )
@@ -784,7 +819,7 @@ def calc_rss( true, pred,yerr_systematic=0.0 ):
     '''
     calculate the residual squared sum
     '''
-    return np.sum( (pred-true)**2 + yerr_systematic**2 )
+    return np.nansum( (pred-true)**2 + yerr_systematic**2 ) #changed from np.sum to np.nansum by AB, in case "true" has Nans due to omitted peaks
 
 def get_params(*fit, sort = False, norm = False, unpack = True):
     '''
@@ -869,7 +904,7 @@ def fit_bootstrap(p0_boot, bounds, datax, datay, sigma_res=None,yerr_systematic=
     if sigma_res==None:
         # Fit first time if no residuals
         pfit, perr = curve_fit( n_fitfunc, datax, datay, p0, maxfev=int(1e6), 
-                                        bounds = bounds   )
+                                        bounds = bounds, nan_policy='omit'   )
 
         print("Ran initial bootstrap curve_fit to generate residuals")
 
@@ -902,7 +937,7 @@ def fit_bootstrap(p0_boot, bounds, datax, datay, sigma_res=None,yerr_systematic=
         try:
             #print(len(p0),len(bounds[0]),len(bounds[1]))
             randomfit, randomcov = curve_fit( n_fitfunc, datax, randomdataY, p0, maxfev=int(1e6), 
-                                    bounds = bounds   )
+                                    bounds = bounds, nan_policy='omit'   )
         except RuntimeError:
             break
         
@@ -987,6 +1022,26 @@ def predict_pops(trained_model,datafits):
    return df 
 
 
+def Filter_spurious_peaks(Y, thresh=5):  #function by AB
+    #Y is an array. We change the ith value to 0 if that value is more than thresh times the value at i-1 and i+1
+
+    #TODO: change this in the next iteration so that it takes as input both the m/z and the intensities (the latter is the current Y variable)
+    #And remove entries from BOTH m/z and Y that are deemed spurious peaks, rather than just setting the Y to 0 
+    #actually no the above isn't gonna work sinec when we fit, we don't acutally input m/z, but rather we input nbins
+    #and simply reducing hte # of bins may cause confusion since the algorithm will have no way to know that you've skipped 
+    #better is to set these values to NaN, then in the CurveFit function, teach it to ignore bins with Nans
+    filteredy = cp.deepcopy(Y)
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore')
+        for i in range(1, len(Y)-1):
+            y = Y[i]
+            if y/Y[i-1]>thresh and y/Y[i+1]>thresh :
+                filteredy[i]=0
+                #print('moo!!')
+            else:
+                filteredy[i]=y
+    return filteredy
+
 ## Function to perform the fits on the metadf list of spectra
 def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame(),update_deutdata = False):
     '''
@@ -1051,7 +1106,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
             max_pops = config.Max_Pops
     else: max_pops = config.Max_Pops
 
-    n_fitfunc = n_binom_isotope # n_binomials #
+    n_fitfunc = n_binom_isotope # n_binomials: AB: this is a function that computes the convolution of the natural isotopic distribution (undeuterated) with a binomial corresponding to differnet #s of deuterations
     fitfunc = binom_isotope # binom #
     fitfunc_name=str(fitfunc).split()[1]  #fit function as string to add to filenames
 
@@ -1169,7 +1224,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
         time_indexes = sorted(set(deutdata.time_idx)) 
         print("Found time points (s): "+', '.join(map(str, time_points)))
         max_time_reps = int(sorted(set(deutdata.rep))[-1])
-        Current_Isotope= get_na_isotope(peptide,charge,mod_dict=mod_dic)
+        Current_Isotope= get_na_isotope(peptide,charge,mod_dict=mod_dic) #AB: this is the natural isotopic distribution for the undeuterated peptide
 
         if GP:
             dax_legend_elements = []
@@ -1221,16 +1276,17 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
             centroidUD_all = []
             for r in time_reps:
                 focal_data = deutdata.copy()[(deutdata.time==0.0) & (deutdata.rep==r)]
-                mz=np.array(focal_data.mz.copy())
-                y=np.array(focal_data.Intensity.copy())
+                mz=np.array(focal_data.mz.copy()) #AB note: these mz values were previously pre-filtered to only correspond to expected ones given the peptide (i.e. peptide molecular mass + differnet nubmers of deuterons) using the peak_picker ( I think that's the name?) function
+                y=np.array(focal_data.Intensity.copy())  #AB note: the variable y are the intensities again only at m/z values that are expected for the peptide 
                 Noise += max(y)/n_time_reps
-                if config.Binomial_dCorr: 
+                if config.Binomial_dCorr: #AB: I believe we are first fitting undeuterated
                     #use the binomial center for the d_corr calc, not the centroid which may capture impurity peaks
                     initial_estimate, bounds = init_params(1,max_n_amides,seed=None)#config.Random_Seed-1)
-                    p0_UD = (0, 0.05, 0.05, 1.0 ) #scaler, nex, mu, frac
+                    p0_UD = (0, 0.05, 0.05, 1.0 ) #scaler, nex, mu, frac  #AB: nex is the nubmer of exchangeable dueterons, mu is the probabilty that each exchanges, frac is the fraciton associated w the current mode, but since it's only one mode, that value is 1
                     try:
                         fit, covar = curve_fit( n_fitfunc, len(y)-1, y/np.sum(y), p0=p0_UD, maxfev=int(1e6), 
-                                                bounds = bounds   )
+                                                bounds = bounds, nan_policy='omit'   ) 
+                        #AB: as usual for scipy.optimize.curvefit, we first give it the fitting ucntion, followed by the x values (which in this case is just a single integer that the funciton later ocnverts to #deut values), y values, and a parameter guess
                         scaler,nexs,mus,fracs = get_params(*fit,sort=True,norm=True,unpack=True)
                         scaler = np.power( 10.0, scaler )  
                         fit_y = scaler * fitfunc( len(y)-1, nexs[0], mus[0], ) * np.sum(y)
@@ -1239,7 +1295,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     except RuntimeError:
                         print (f"failed to fit: UnDeut data for d_corr calculation")
                         break
-                else: cent_r = [sum(mz*y)/sum(y)]
+                else: cent_r = [sum(mz*y)/sum(y)] 
                 centroidUD_all += cent_r
             centroidUD = np.mean(centroidUD_all)         
             centroidUD_err = np.std(centroidUD_all)
@@ -1256,9 +1312,9 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     #use the binomial center for the d_corr calc, not the centroid which may capture impurity peaks
                     initial_estimate, bounds = init_params(1,max_n_amides,seed=None)#config.Random_Seed-1)
                     p0_TD = (0, max_n_amides - 1, 0.8, 1.0 )
-                    try:
+                    try: #AB: now fit totally deuterated data if we have that
                         fit, covar = curve_fit( n_fitfunc, len(y)-1, y/np.sum(y), p0=p0_TD, maxfev=int(1e6), 
-                                                bounds = bounds   )
+                                                bounds = bounds, nan_policy='omit'   )
                         scaler,nexs,mus,fracs = get_params(*fit,sort=True,norm=True,unpack=True)
                         scaler = np.power( 10.0, scaler )  
                         fit_y = scaler * fitfunc( len(y)-1, nexs[0], mus[0], ) * np.sum(y)
@@ -1272,7 +1328,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
             centroidTD = np.mean(centroidTD_all)
             centroidTD_err = np.std(centroidTD_all)
 
-            d_corr = (charge*(centroidTD - centroidUD)/n_amides)
+            d_corr = (charge*(centroidTD - centroidUD)/n_amides) #AB: i think it's just how many deuteroins are acutally exchanged in the "totally deuterated" sample (whcih is generally less than the theoretical n_exchangable deuterones due to back exchange and the exchange solution being only 90% deuterium)
             Noise = Noise/2.0 * config.Y_ERR/100.0 #noise is config.Y_ERR * avg maxInt of UnDeut and FullDeut
             dax_log = True #safety for plotting ndeut with log scale
         else: 
@@ -1317,20 +1373,29 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                 if not rawdata.empty: 
                     if config.Keep_Raw: focal_raw = rawdata.copy()[(rawdata.time_idx == ti) & (rawdata.rep == j)]
                 else: focal_raw = focal_data.copy()
-                envelope_height = focal_data['Intensity'].max() * config.Env_threshold
-                env, env_Int = get_mz_env(envelope_height,focal_data,pts=True)
+                envelope_height = focal_data['Intensity'].max() * config.Env_threshold #AB: typically config.Evn_threshold = 0.1, and so this variable envelope_height = 0.1* the maximum intensity  
+                env, env_Int = get_mz_env(envelope_height,focal_data,pts=True) #AB: env is the set of all m/zs in teh envelope, env_INT is the leftmost intensity 
                 
                 mz=np.array(focal_data.mz.copy())
-                y=np.array(focal_data.Intensity.copy())
+                y=np.array(focal_data.Intensity.copy()) #AB: I believe this y is the variable that you may want to filter for spurious peaks
+                #Following lines are by AB
+                if config.FilterSpuriousPeaks:
+                    y = Filter_spurious_peaks(y, thresh=config.Spurious_peak_thresh)
                 #x=np.full(y.shape,len(y))
 
                 env_symmetry_adj = 2.0 - (y.max() - env_Int)/y.max() # 0 -> assym, 1 -> symm  
                                                             # want 0 to be 2x and 1 to be 1x -> y = -1*x + 2
 
-                ynorm_factor = np.sum(y)
+                #AB: SOme notes about the above. REcall that env_INT is the leftmost intensity in your envelope.
+                #For a perfectly symmetric envelope, that lefmost intensity will be equal to threshold*ymax (whether treshold typcially =0.1)
+                #and thus, this formula will come out to 1.1
+                #But if the peptide is undeuterated and small, the binomial distribution will be quite asymmetric and env_INT will be quite a bit larger than the threshold, it may even be close to y_max
+                #in that case, thsi formula will come out to about 2
+                #this asymmetry metric can be used (although isn't by default) to constrain # of modes for fit. I didn't read into this yet
+                ynorm_factor = np.nansum(y)  #AB: if spurious peaks have been filtered, thenthis normalization factor will be smaller. In this latest version I changed from sum to nansum as spurious peaks are made nans
                 y_norm = y / ynorm_factor # 50secs with vs 2 mins without normalization
                 
-                if config.Scale_Y_Values: 
+                if config.Scale_Y_Values: #AB: this is by default the case 
                     scale_y = ynorm_factor
                 else:
                     if config.Keep_Raw: 
@@ -1399,9 +1464,9 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                             covar = np.zeros_like(fit)
                             fit_y = n_fitfunc( n_bins, *fit )
                             rss = calc_rss( y_norm, fit_y, )
-                        else:
+                        else: #AB: fit to the curent # of curves
                             fit, covar = curve_fit( n_fitfunc, n_bins, y_norm, p0=initial_estimate, maxfev=int(1e6), 
-                                                    bounds = bounds   )
+                                                    bounds = bounds, nan_policy='omit'   )
                             fit_y = n_fitfunc( n_bins, *fit )
                             rss = calc_rss( y_norm, fit_y, )
                             #bestifit = 1
@@ -1412,7 +1477,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                                 initial_estimate, bounds = init_params(n_curves,max_n_amides,seed=seed)
                                 
                                 newfit, newcovar = curve_fit( n_fitfunc, n_bins, y_norm, p0=initial_estimate, maxfev=int(1e6), 
-                                                    bounds = bounds   )
+                                                    bounds = bounds, nan_policy='omit'   )
                                 new_fit_y = n_fitfunc( n_bins, *newfit )
                                 new_rss = calc_rss( y_norm, new_fit_y, )
                                 #print("trying",ifits,"of ",config.BestFit_of_X," fits:",initial_estimate,new_rss)
@@ -1454,8 +1519,15 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                         # F = (prev_rss - curr_rss)/(dof_prev - dof_curr) / (rss_curr / dof_curr)
                         #   = (prev_rss - rss)/(n_bins + 1 - (n_params - 3) - (nbins + 1 - n_params)) / (rss / (nbins + 1 - n-params))
                         #                      xnbinsx + x1x - xnparamsx + 3 - xnbinsx - x1x + xnparamsx  = 3 (1 x frac, mu, nex for each additional curve)
-                        F = ( ( prev_rss - rss ) / (3)  ) / ( rss / ( n_bins + 1 - n_params ) )
-                        p = 1.0 - stats.f.cdf( F, 3, n_bins + 1 - n_params )
+                        F = ( ( prev_rss - rss ) / (3)  ) / ( rss / ( n_bins + 1 - n_params ) ) #AB: thsi is where we compute the p values,need to understnad how..
+                        p = 1.0 - stats.f.cdf( F, 3, n_bins + 1 - n_params )  #AB: this is the cumulkative distribution for the F distribution
+                        #The idea is that the F distribution governs the ratio of two chi-squared distributed variables, when normalized by their # of degrees of freedom
+                        #We are doing a basic ANOVA actually (https://en.wikipedia.org/wiki/Analysis_of_variance)
+                        #in ANOVA, we compute the ratio of variance between treatments (the two treatments here are whether we fit n+1 or n curves) to variance within a treatment
+
+                        #I THINK this p value tells you the probability of the null model in which the two treatments vary to the same degree as expected for the variation within a given treamment (and thus changing the treatmnet has no effect)
+                        
+
                         p_corr = p * (n_curves-1) ### is this correct? this small scaling doesn't really affect the selection
                         
                         fitparamsdf['p-value'] = p_corr
@@ -1597,7 +1669,10 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                 fit_y = fit_y * scale_y
                 scaled_env_height = max(y_plot)*config.Env_threshold
                 env_resolution = env_symmetry_adj *charge * (env[1]-env[0]) / ( len(best_fit) + 1.0 ) #rough measure of whether there's enough information to do the n_curves fit
-                
+                #AB: I"m not sure this value is actually used for anything except for labeling a plot
+                #didn't think super carefully about its meaning
+
+
                 #data_fit.loc[0,'env_res_1'] = env_symmetry_adj *charge * (env[1]-env[0]) / ( 2.0 ) #env_res for n_curves = 1 case 
                 data_fit.loc[0,'env_width'] = charge*(env[1]-env[0])
                 data_fit.loc[0,'env_symm'] = env_symmetry_adj
@@ -1891,9 +1966,11 @@ def export_to_hxexpress(rawdata,metadf,save_xls = False, removeUNTDreps = False)
         hxcols.to_excel(os.path.join(config.Data_DIR,filename+".xlsx"),index=None)
     return hxcols
 
-def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.DataFrame(),norm=False,residual=False,ax=None,rax=None,plt_kwargs={},simfit=False,saveas=None):
+def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.DataFrame(),norm=False,residual=False,ax=None,rax=None,plt_kwargs={},simfit=False,saveas=None, plot_raw=True):
     '''
     intended to plot a single spectrum: raw data, picked peaks, and fits
+    AB: recall that deutdata is specificlaly the data at the expected m/z peaks
+    AB: Added the option to not plot the raw data by setting plot_raw to False
     '''
     n_fitfunc = n_binom_isotope # n_binomials #
     fitfunc = binom_isotope # binom #
@@ -1905,7 +1982,7 @@ def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.D
         if (rax is None) and (residual == True):
             plt.close()
             fig, (ax,rax) =  plt.subplots(2, 1, figsize=(5,5),gridspec_kw={'height_ratios': [3, 1]})
-    plt_raw = {'color':'#999999'}
+    plt_raw = {'color':'#999999'} #AB: This is gray60––
     plt_raw.update(plt_kwargs)
     deut_spectra = zip(*[deutdata[col] for col in ['sample','peptide_range','time','rep','charge']])
     deut_spectra = list(dict.fromkeys(deut_spectra))
@@ -1919,11 +1996,31 @@ def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.D
         peptide_range = focal_data['peptide_range'].values[0]
         shortpeptide = peptide if len(peptide) < 22 else peptide[:9]+'...'+peptide[-9:] #for tidy plot labels
 
-        mz=np.array(focal_data.mz.copy())        
+        mz=np.array(focal_data.mz.copy())
         if len(mz) == 0: continue
-        y=np.array(focal_data.Intensity.copy())
-        scale_y = np.sum(y)
-        y_norm = y/scale_y
+        y=np.array(focal_data.Intensity.copy()) #AB: The intensities specifically at m/z peaks for peptide
+        
+        #scale_y = np.sum(y) #Commented out by AB: This is Sum over all intensities. But to make sure fit is correct, we shoudl actually be summing y without spuriosu peaks
+        
+
+        #AB: A note that the n_fitfunc is always normalized (area under curve = 1). 
+        #It then follows that the are under the curve under this fit_y function above will always be scale_y
+        #THUS if we removed spurious peaks before normalizing and fitting, then the fit function won't know about those spurious peaks
+        #So this operation will "up-amplify" the real (non-spurious) peaks so that the area under the curve equals scale_y
+        #This will lead to an overestimation of the area for those real peaks
+
+        #To account for this, we do the following
+
+        #following lines are by AB
+        if config.FilterSpuriousPeaks:
+            y_nospur = Filter_spurious_peaks(y, thresh=config.Spurious_peak_thresh)
+            scale_y = np.sum(y_nospur)
+        else:
+            scale_y = np.sum(y)
+
+
+        
+        y_norm = y/scale_y 
         rawint = focal_raw.Intensity
         scale_raw = rawint/scale_y
         if (len(deut_spectra) > 1): norm = True
@@ -1938,8 +2035,10 @@ def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.D
         
         if len(deut_spectra)>1: pl = (',').join(map(str,[s,p,t,int(r),int(z)])) 
         else: pl='data '+str(t)+'s, rep '+str(r)
-        ax.plot(mz, y, 'ro',  markersize='4',label=pl ,zorder=1)
-        ax.plot(focal_raw.mz, rawint, **plt_raw ,zorder=0)
+        ax.plot(mz, y, 'ro',  markersize='4',label=pl ,zorder=1) #AB: Here we plot the raw intensities as red markers, ONLY at m/z values corresp to peptide
+        if plot_raw: 
+            ax.plot(focal_raw.mz, rawint, **plt_raw ,zorder=0)  #AB: Here we are plotting the RAW intensities at ALL m/z values whehter they corresp to peptide or not
+        
 
         if not focal_fit.empty:
             fits = focal_fit.copy()
@@ -1951,9 +2050,11 @@ def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.D
             for nb in nboot_list:
                 params_best_fit = fits.copy()[(fits['nboot']==nb) & (fits['ncurves']==best_n_curves)]['Fit_Params'].values[0]
                 params_best_fit = [float(x) for x in params_best_fit.split()]
-                scaler,nexs,mus,fracs = get_params(*params_best_fit,sort=True,norm=True,unpack=True)
-                
+                scaler,nexs,mus,fracs = get_params(*params_best_fit,sort=True,norm=True,unpack=True) #AB: If we removed spurious peaks, the scaler is gonna be off...
+
                 fit_y = n_fitfunc( n_bins, *params_best_fit ) * scale_y 
+                #print('nbins is {}'.format(n_bins)) #AB
+                
                 if simfit: 
                     sim_scale_y = np.sum(y)/np.sum(fit_y)
                     fit_y = fit_y * sim_scale_y
@@ -1962,7 +2063,12 @@ def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.D
                 # print("sumfit: ",np.sum(fit_y))
                 # print("y/fit_y:", y/fit_y)
 
+                #if nb==0:  #AB
+                #    print('scaler = {} \n nexs = {} \n mus = {} \n fracs = {}'.format(*params_best_fit))
+
+
                 ax.plot( mz, fit_y, '-', alpha=0.5)#label='fit sum N='+str(best_n_curves));
+                #if nb==0: print('Current isotope is: {}'.format(Current_Isotope)) #AB
 
                 if residual == True:
                     rlabel=''
@@ -1986,7 +2092,7 @@ def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.D
                     kindcent = sum(mz*fit_yk)/sum(fit_yk)
                     plot_label = ('pop'+str(k+1)+' = '+format(frac,'.2f') 
                                         +'\nm/z = '+format(kindcent,'.2f'))
-                    if nb==0: fit_kwds = {'color':'k','linestyle':'-','linewidth':1,'zorder':10}
+                    if nb==0: fit_kwds = {'color':'k','linestyle':'-','linewidth':1,'zorder':10} #ab: fit from first bootstrap is in black
                     else: fit_kwds = {'color':'green','linestyle':'dashed','linewidth':3,'alpha':0.2,'zorder':5}
                     if len(deut_spectra) == 1:
                         if (k==0) & (nb==1): fit_kwds.update({'label':'BootFits'})
