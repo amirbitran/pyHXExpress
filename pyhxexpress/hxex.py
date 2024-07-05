@@ -774,19 +774,22 @@ def binom(bins, n, p):
 def binom_isotope(bins, n,p):
     '''
     binomial function using the Natural Abundance isotopic envelope
+
+    Another note by AB: originally, "bins" was supposed to be an integer correspondign to the number of exhangable deuterons, but I changed it so that now, it shoudl be an array ranging from 0 to N deuterons 
+    This is because it makes it more compatible with scipy's nan policies if the x input argument to whatever funciton we're fitting is an array rather than a single integer
     '''
-    bs = binom(bins,n,p) #AB: simple binomial distribution evaluted between 0 and bins-1. We compute this because this models the deuteration process
+    nexchangable_deuts = len(bins) - 1 #minus one because the bins array goes from 0 to Ndeuterons, and the length of tha tarray 1 greater than the # of deuterons
+    bs = binom(nexchangable_deuts,n,p) #AB: simple binomial distribution evaluted between 0 and bins-1. We compute this because this models the deuteration process
     newbs=np.zeros(len(bs) + len(Current_Isotope)+1) #AB: this will be our convolution between the natural isotopic distribution and our binomial deuteration
     for i in range(len(bs)): #AB: loop over all values for our natural isotopic distribution (j) and all possible values for # of deuterons governed by binomial (i) to form the convolution
         for j in range(len(Current_Isotope)):     
             newbs[i+j] += bs[i]*Current_Isotope[j]   #AB: the probabitly that the natural isotopic distr has value j and that the deuterated distribution has value i is simply their product
-    return newbs[0:bins+1]
+    return newbs[0:nexchangable_deuts+1]
 
 def n_binomials( bins, *params ): #allfracsversion
     '''
     basic binomial for n populations
-    note by AB: bins is a single integer that tells you how many values of x you want to compute the binomial at
-    for instnac eif bins=5 you'll compute the value for the binomials at x=0, 1, 2, 3 and 4
+ 
     '''
     # params takes the form [scaler, n_1, ..., n_n, mu_1, ..., mu_n, frac_1, ..., frac_n] 
     n_curves = int( (len(params)+1) / 3.0 )
@@ -805,8 +808,12 @@ def n_binom_isotope( bins, *params ): #allfracsversion
     '''
     n population binomial using the Natural Abundance isotopic envelope
     AB: this is a probabiltiy distribution that results from the convolution of the natural isotopic distribution with some number of binomials corresponding to different deuterated populations
+   
+    Another note by AB: originally, "bins" was supposed to be an integer correspondign to the number of exhangable deuterons, but I changed it so that now, it shoudl be an array ranging from 0 to N deuterons 
+    This is because it makes it more compatible with scipy's nan policies if the x input argument to whatever funciton we're fitting is an array rather than a single integer
     '''
     # params takes the form [ scaler, mu_1, ..., mu_n, frac_1, ..., frac_n] 
+    nexchangable_deuts = len(bins) - 1 #minus one because the bins array goes from 0 to Ndeuterons, and the length of tha tarray 1 greater than the # of deuterons
     n_curves = int(( len(params) + 1) / 3.0 )
     log_scaler = params[0]
     n_array = np.array( params[1:n_curves+1] )
@@ -814,7 +821,7 @@ def n_binom_isotope( bins, *params ): #allfracsversion
     frac_array = np.array( params[ -n_curves: ] )
     frac_array = frac_array/np.sum(frac_array)
     poissons = [ frac * binom_isotope( bins, n, mu ) for frac, n, mu in zip( frac_array, n_array, mu_array ) ]
-    truncated = np.power( 10.0, log_scaler ) * np.sum( poissons, axis=0, )[0:bins+1]
+    truncated = np.power( 10.0, log_scaler ) * np.sum( poissons, axis=0, )[0:nexchangable_deuts+1]
     return truncated 
 
 def calc_rss( true, pred,yerr_systematic=0.0 ):
@@ -887,7 +894,7 @@ def minimize_func(params, *data):
     residual sum squared to be minimized using scipy.optimize.differential_evolution
     '''
     bins,y = data
-    result = np.sum( (n_fitfunc(bins,*params)-y)**2 )
+    result = np.sum( (n_fitfunc(np.arange(bins+1).astype('float64') ,*params)-y)**2 )
 
     return result #**0.5
 
@@ -905,13 +912,13 @@ def fit_bootstrap(p0_boot, bounds, datax, datay, sigma_res=None,yerr_systematic=
     
     if sigma_res==None:
         # Fit first time if no residuals
-        pfit, perr = curve_fit( n_fitfunc, datax, datay, p0, maxfev=int(1e6), 
+        pfit, perr = curve_fit( n_fitfunc, np.arange(datax+1).astype('float64') , datay, p0, maxfev=int(1e6), 
                                         bounds = bounds  )
 
         print("Ran initial bootstrap curve_fit to generate residuals")
 
         # Get the stdev of the residuals
-        residuals = n_fitfunc(datax,*pfit) - datay
+        residuals = n_fitfunc(np.arange(datax+1).astype('float64') ,*pfit) - datay
         sigma_res = np.std(residuals)
     sigma_err_total = np.sqrt(sigma_res**2 + yerr_systematic**2)
 
@@ -938,7 +945,7 @@ def fit_bootstrap(p0_boot, bounds, datax, datay, sigma_res=None,yerr_systematic=
                             break # exit the for n_curves loop
         try:
             #print(len(p0),len(bounds[0]),len(bounds[1]))
-            randomfit, randomcov = curve_fit( n_fitfunc, datax, randomdataY, p0, maxfev=int(1e6), 
+            randomfit, randomcov = curve_fit( n_fitfunc, np.arange(datax+1).astype('float64') , randomdataY, p0, maxfev=int(1e6), 
                                     bounds = bounds  )
         except RuntimeError:
             break
@@ -955,14 +962,14 @@ def fit_bootstrap(p0_boot, bounds, datax, datay, sigma_res=None,yerr_systematic=
 
         tempr = rfit.copy()
         tempr[0] = np.log10(rfit[0])
-        boot_y = n_fitfunc(datax, *tempr) 
+        boot_y = n_fitfunc(np.arange(datax+1).astype('float64') , *tempr) 
         boot_residual = calc_rss(boot_y , datay)
         
         if ax != None: ax.plot( mz, boot_y*yscale, color = 'darkviolet', linestyle='solid', alpha=0.2 )
         s,n,m,f = get_params(*rfit,norm=True,unpack=True) #already did 10**s in rfit
         kcenter = [] #get centroids of each population
         for k in range( num_curves ):
-            bfit_yk = s * f[k] * fitfunc( datax, n[k], m[k], ) * yscale
+            bfit_yk = s * f[k] * fitfunc( np.arange(datax+1).astype('float64'), n[k], m[k], ) * yscale
             kcenter += [sum(bfit_yk * mz)/sum(bfit_yk)]
             #plot_label = ('pop'+str(k+1)+' = '+format(frac,'.2f')+'\nNex'+str(k+1)+' = '+format(nex,'.1f'))
             if ax != None: ax.plot( mz, bfit_yk, color = 'green', linestyle='dashed',linewidth=3,alpha=0.2)#label=plot_label)
@@ -997,12 +1004,14 @@ def get_TDenv(datafits,mod_dict={}):
    for peptide,namides in test_peptides.items():
       charge = 1
       Current_Isotope= get_na_isotope(peptide,charge,npeaks=None,mod_dict=mod_dict)
-      TD_max_spectrum = n_binom_isotope(namides+5,0.0, namides, config.Dfrac, 1.0) #use Dfrac for expected TDenv
+      #TD_max_spectrum = n_binom_isotope(namides+5,0.0, namides, config.Dfrac, 1.0) #use Dfrac for expected TDenv
+      TD_max_spectrum = n_binom_isotope(np.arange(namides+6).astype('float64'),0.0, namides, config.Dfrac, 1.0) #use Dfrac for expected TDenv..changed by AB per new workings of n_binomial_isotope function
       TD_spec = pd.DataFrame(zip(np.arange(len(TD_max_spectrum)),TD_max_spectrum),columns=['mz','Intensity'])
       [left,right] = get_mz_env(0.1*max(TD_max_spectrum),TD_spec,colname='Intensity')
       TD_env_width = (right - left)*charge
       peptide_idx = df[(df['peptide'] == peptide)].index
       df.loc[peptide_idx,'TD_env_width'] = TD_env_width
+      
    return df
 
 def predict_pops(trained_model,datafits):
@@ -1286,12 +1295,13 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     initial_estimate, bounds = init_params(1,max_n_amides,seed=None)#config.Random_Seed-1)
                     p0_UD = (0, 0.05, 0.05, 1.0 ) #scaler, nex, mu, frac  #AB: nex is the nubmer of exchangeable dueterons, mu is the probabilty that each exchanges, frac is the fraciton associated w the current mode, but since it's only one mode, that value is 1
                     try:
-                        fit, covar = curve_fit( n_fitfunc, len(y)-1, y/np.sum(y), p0=p0_UD, maxfev=int(1e6), 
+                        
+                        fit, covar = curve_fit( n_fitfunc, np.arange(len(y)).astype('float64') , y/np.sum(y), p0=p0_UD, maxfev=int(1e6), 
                                                 bounds = bounds   ) 
                         #AB: as usual for scipy.optimize.curvefit, we first give it the fitting ucntion, followed by the x values (which in this case is just a single integer that the funciton later ocnverts to #deut values), y values, and a parameter guess
                         scaler,nexs,mus,fracs = get_params(*fit,sort=True,norm=True,unpack=True)
                         scaler = np.power( 10.0, scaler )  
-                        fit_y = scaler * fitfunc( len(y)-1, nexs[0], mus[0], ) * np.sum(y)
+                        fit_y = scaler * fitfunc( np.arange(len(y)).astype('float64'), nexs[0], mus[0], ) * np.sum(y)
                         #print("UN len(fit_y), sum(fit_y)",len(fit_y),sum(fit_y)) #TROUBLESHOOTING
                         cent_r =  [sum(mz*fit_y)/sum(fit_y)] 
                     except RuntimeError:
@@ -1315,11 +1325,11 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     initial_estimate, bounds = init_params(1,max_n_amides,seed=None)#config.Random_Seed-1)
                     p0_TD = (0, max_n_amides - 1, 0.8, 1.0 )
                     try: #AB: now fit totally deuterated data if we have that
-                        fit, covar = curve_fit( n_fitfunc, len(y)-1, y/np.sum(y), p0=p0_TD, maxfev=int(1e6), 
+                        fit, covar = curve_fit( n_fitfunc, np.arange(len(y)).astype('float64') , y/np.sum(y), p0=p0_TD, maxfev=int(1e6), 
                                                 bounds = bounds,   )
                         scaler,nexs,mus,fracs = get_params(*fit,sort=True,norm=True,unpack=True)
                         scaler = np.power( 10.0, scaler )  
-                        fit_y = scaler * fitfunc( len(y)-1, nexs[0], mus[0], ) * np.sum(y)
+                        fit_y = scaler * fitfunc( np.arange(len(y)).astype('float64'), nexs[0], mus[0], ) * np.sum(y)
                         #print("TD len(fit_y), sum(fit_y)",len(fit_y),sum(fit_y)) #TROUBLESHOOTING
                         cent_r = [sum(mz*fit_y)/sum(fit_y)]                      
                     except RuntimeError:
@@ -1464,12 +1474,12 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                             fit =  get_params(*result.x,sort=True,norm=True,unpack=False)
                             #print(fit)
                             covar = np.zeros_like(fit)
-                            fit_y = n_fitfunc( n_bins, *fit )
+                            fit_y = n_fitfunc( np.arange(n_bins+1).astype('float64') , *fit )
                             rss = calc_rss( y_norm, fit_y, )
                         else: #AB: fit to the curent # of curves
-                            fit, covar = curve_fit( n_fitfunc, n_bins, y_norm, p0=initial_estimate, maxfev=int(1e6), 
+                            fit, covar = curve_fit( n_fitfunc, np.arange(n_bins+1).astype('float64'), y_norm, p0=initial_estimate, maxfev=int(1e6), 
                                                     bounds = bounds  )
-                            fit_y = n_fitfunc( n_bins, *fit )
+                            fit_y = n_fitfunc( np.arange(n_bins+1).astype('float64'), *fit )
                             rss = calc_rss( y_norm, fit_y, )
                             #bestifit = 1
                             #print("trying fit 1 of ",config.BestFit_of_X," fits:",initial_estimate,rss)
@@ -1478,9 +1488,9 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                                 else: seed = None
                                 initial_estimate, bounds = init_params(n_curves,max_n_amides,seed=seed)
                                 
-                                newfit, newcovar = curve_fit( n_fitfunc, n_bins, y_norm, p0=initial_estimate, maxfev=int(1e6), 
+                                newfit, newcovar = curve_fit( n_fitfunc, np.arange(n_bins+1).astype('float64'), y_norm, p0=initial_estimate, maxfev=int(1e6), 
                                                     bounds = bounds   )
-                                new_fit_y = n_fitfunc( n_bins, *newfit )
+                                new_fit_y = n_fitfunc( np.arange(n_bins+1).astype('float64'), *newfit )
                                 new_rss = calc_rss( y_norm, new_fit_y, )
                                 #print("trying",ifits,"of ",config.BestFit_of_X," fits:",initial_estimate,new_rss)
                                 if new_rss < rss:
@@ -1558,7 +1568,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
 
                 data_fit.loc[0,'fit_pops'] = best_n_curves
                 data_fit.loc[0,'p-value'] = p_corr
-                fit_y = n_fitfunc( n_bins, *best_fit )
+                fit_y = n_fitfunc( np.arange(n_bins+1).astype('float64'), *best_fit )
                 fstdev = np.sqrt(np.diag(best_covar)) ### this error is not realistic and can be over and underestimate of error
                                                     ### Artifically small: fit can be very well converged but still miss the mark
                                                     ### since measurement contains error and fit is assuming perfect data
@@ -1713,7 +1723,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     mu_err = fstdev[k+best_n_curves+1]
                     frac = fracs[k]/fracsum
                     frac_err = 1.0 #### issue with diffevo, min(1.0,fstdev[-1]/fracsum) #if best_n_curves > 1 else 0.
-                    fit_yk = scaler * frac * fitfunc( n_bins, nex, mu, ) * scale_y
+                    fit_yk = scaler * frac * fitfunc( np.arange(n_bins+1).astype('float64') , nex, mu, ) * scale_y
                     kindcent = sum(mz*fit_yk)/sum(fit_yk)
                     deut_corr_k = (kindcent - centroidUD)*charge * 1/d_corr
                     data_fit.loc[0,'centroid_'+str(k+1)]=kindcent
@@ -2054,7 +2064,7 @@ def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.D
                 params_best_fit = [float(x) for x in params_best_fit.split()]
                 scaler,nexs,mus,fracs = get_params(*params_best_fit,sort=True,norm=True,unpack=True) #AB: If we removed spurious peaks, the scaler is gonna be off...
 
-                fit_y = n_fitfunc( n_bins, *params_best_fit ) * scale_y 
+                fit_y = n_fitfunc( np.arange(n_bins+1).astype('float64'), *params_best_fit ) * scale_y 
                 #print('nbins is {}'.format(n_bins)) #AB
                 
                 if simfit: 
@@ -2089,7 +2099,7 @@ def plot_spectrum(deutdata=pd.DataFrame(),rawdata=pd.DataFrame(),fit_params=pd.D
                     nex = nexs[k]
                     mu = mus[k]                
                     frac = fracs[k]/fracsum                                    
-                    fit_yk = np.power( 10.0, scaler )  * frac * fitfunc( n_bins, nex, mu, ) * scale_y
+                    fit_yk = np.power( 10.0, scaler )  * frac * fitfunc( np.arange(n_bins+1).astype('float64') , nex, mu, ) * scale_y
                     if simfit: fit_yk = fit_yk * sim_scale_y
                     kindcent = sum(mz*fit_yk)/sum(fit_yk)
                     plot_label = ('pop'+str(k+1)+' = '+format(frac,'.2f') 
