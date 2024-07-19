@@ -134,7 +134,6 @@ def write_parameters(write_dir=os.getcwd(),overwrite=False):
                 p_file.write("# missing parameter "+p+"\n")
 
 ## Functions to read data in different formats
-
 def get_hxexpress_meta(hx_file):
     '''
     this was written for a specific filename format: SAMPLE_START-END-PEPTIDE-zCHARGE-usertext.xlsx
@@ -913,7 +912,7 @@ def fit_bootstrap(p0_boot, bounds, datax, datay, sigma_res=None,yerr_systematic=
     if sigma_res==None:
         # Fit first time if no residuals
         pfit, perr = curve_fit( n_fitfunc, np.arange(datax+1).astype('float64') , datay, p0, maxfev=int(1e6), 
-                                        bounds = bounds  )
+                                        bounds = bounds, nan_policy='omit'   )
 
         print("Ran initial bootstrap curve_fit to generate residuals")
 
@@ -946,7 +945,7 @@ def fit_bootstrap(p0_boot, bounds, datax, datay, sigma_res=None,yerr_systematic=
         try:
             #print(len(p0),len(bounds[0]),len(bounds[1]))
             randomfit, randomcov = curve_fit( n_fitfunc, np.arange(datax+1).astype('float64') , randomdataY, p0, maxfev=int(1e6), 
-                                    bounds = bounds  )
+                                    bounds = bounds, nan_policy='omit'   )
         except RuntimeError:
             break
         
@@ -1047,7 +1046,8 @@ def Filter_spurious_peaks(Y, thresh=5):  #function by AB
         for i in range(1, len(Y)-1):
             y = Y[i]
             if y/Y[i-1]>thresh and y/Y[i+1]>thresh :
-                filteredy[i]=0
+                #filteredy[i]=0
+                filteredy[i]=np.nan
                 #print('moo!!')
             else:
                 filteredy[i]=y
@@ -1297,7 +1297,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     try:
                         
                         fit, covar = curve_fit( n_fitfunc, np.arange(len(y)).astype('float64') , y/np.sum(y), p0=p0_UD, maxfev=int(1e6), 
-                                                bounds = bounds   ) 
+                                                bounds = bounds, nan_policy='omit'    ) 
                         #AB: as usual for scipy.optimize.curvefit, we first give it the fitting ucntion, followed by the x values (which in this case is just a single integer that the funciton later ocnverts to #deut values), y values, and a parameter guess
                         scaler,nexs,mus,fracs = get_params(*fit,sort=True,norm=True,unpack=True)
                         scaler = np.power( 10.0, scaler )  
@@ -1326,7 +1326,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     p0_TD = (0, max_n_amides - 1, 0.8, 1.0 )
                     try: #AB: now fit totally deuterated data if we have that
                         fit, covar = curve_fit( n_fitfunc, np.arange(len(y)).astype('float64') , y/np.sum(y), p0=p0_TD, maxfev=int(1e6), 
-                                                bounds = bounds,   )
+                                                bounds = bounds, nan_policy='omit'    )
                         scaler,nexs,mus,fracs = get_params(*fit,sort=True,norm=True,unpack=True)
                         scaler = np.power( 10.0, scaler )  
                         fit_y = scaler * fitfunc( np.arange(len(y)).astype('float64'), nexs[0], mus[0], ) * np.sum(y)
@@ -1395,7 +1395,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                     y = Filter_spurious_peaks(y, thresh=config.Spurious_peak_thresh)
                 #x=np.full(y.shape,len(y))
 
-                env_symmetry_adj = 2.0 - (y.max() - env_Int)/y.max() # 0 -> assym, 1 -> symm  
+                env_symmetry_adj = 2.0 - (np.nanmax(y) - env_Int)/np.nanmax(y) # 0 -> assym, 1 -> symm  
                                                             # want 0 to be 2x and 1 to be 1x -> y = -1*x + 2
 
                 #AB: SOme notes about the above. REcall that env_INT is the leftmost intensity in your envelope.
@@ -1419,7 +1419,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                 
                 max_y = np.max(y) #for parameter initialization
                 
-                centroid_j = sum(mz*y)/sum(y) #centroid from unfit picked peaks
+                centroid_j = np.nansum(mz*y)/np.nansum(y) #centroid from unfit picked peaks
 
                 #data_fit =pd.DataFrame({'time':[timept],'rep':[j],'centroid':[centroid_j]})
                 data_fit = pd.DataFrame(columns = data_fit_columns)
@@ -1478,7 +1478,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                             rss = calc_rss( y_norm, fit_y, )
                         else: #AB: fit to the curent # of curves
                             fit, covar = curve_fit( n_fitfunc, np.arange(n_bins+1).astype('float64'), y_norm, p0=initial_estimate, maxfev=int(1e6), 
-                                                    bounds = bounds  )
+                                                    bounds = bounds, nan_policy='omit'   )
                             fit_y = n_fitfunc( np.arange(n_bins+1).astype('float64'), *fit )
                             rss = calc_rss( y_norm, fit_y, )
                             #bestifit = 1
@@ -1489,7 +1489,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                                 initial_estimate, bounds = init_params(n_curves,max_n_amides,seed=seed)
                                 
                                 newfit, newcovar = curve_fit( n_fitfunc, np.arange(n_bins+1).astype('float64'), y_norm, p0=initial_estimate, maxfev=int(1e6), 
-                                                    bounds = bounds   )
+                                                    bounds = bounds, nan_policy='omit'    )
                                 new_fit_y = n_fitfunc( np.arange(n_bins+1).astype('float64'), *newfit )
                                 new_rss = calc_rss( y_norm, new_fit_y, )
                                 #print("trying",ifits,"of ",config.BestFit_of_X," fits:",initial_estimate,new_rss)
