@@ -102,6 +102,7 @@ DiffEvo_kwargs = {'polish':True,'maxiter':100}
 #following lines by AB
 FilterSpuriousPeaks = True  #eliminate peaks whose intensity is more than Spurious_peak_thresh = 5 times that of the left and right neighbours
 Spurious_peak_thresh = 5
+LimitMZRange = True #if true, we only fit m/z range from lowest value up to n_exchangable deuterons + (standard eviation of natural isotopic distribution)
 
 
 ########################################

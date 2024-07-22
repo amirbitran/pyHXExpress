@@ -93,9 +93,9 @@ def write_parameters(write_dir=os.getcwd(),overwrite=False):
     #              'Ncurve_p_accept', 'Nex_Max_Scale', 'Nterm_subtract', 'Output_DIR', 'Overlay_replicates', 'Peak_Resolution', 'Pop_Thresh', 'Preset_Pops', 
     #              'Preset_Pops_File', 'process_ALL', 'Random_Seed', 'Read_Spectra_List', 'Residual_Cutoff','Save_Spectra', 'Scale_Y_Values', 'setNoise', 
     #              'SVG', 'Test_Data', 'Use_DiffEvo', 'User_mutants', 'User_peptides', 'WRITE_PARAMS', 'Y_ERR', 'Zero_Filling']
-    #AB commented out the above. In lieu, AB has the following which includes the spuriosu peak paramteres
+    #AB commented out the above. In lieu, AB has the following which includes the spuriosu peak paramteres and LimitMZRange
     all_params = ['Allow_Overwrite', 'BestFit_of_X', 'Binomial_dCorr', 'Data_DIR', 'Data_Type', 'DiffEvo_kwargs', 'DiffEvo_threshold','Dfrac', 'Env_limit', 
-                  'Env_threshold', 'FullDeut_Time', 'Hide_Figure_Output', 'Keep_Raw', 'Limit_by_envelope', 'Max_Pops', 'Metadf_File', 'Min_Pops', 'Nboot', 
+                  'Env_threshold', 'FullDeut_Time', 'Hide_Figure_Output', 'Keep_Raw', 'Limit_by_envelope', 'LimitMZRange', 'Max_Pops', 'Metadf_File', 'Min_Pops', 'Nboot', 
                   'Ncurve_p_accept', 'Nex_Max_Scale', 'Nterm_subtract', 'Output_DIR', 'Overlay_replicates', 'Peak_Resolution', 'Pop_Thresh', 'Preset_Pops', 
                   'Preset_Pops_File', 'process_ALL', 'Random_Seed', 'Read_Spectra_List', 'Residual_Cutoff','Save_Spectra', 'Scale_Y_Values', 'setNoise', 
                   'SVG', 'Test_Data', 'Use_DiffEvo', 'User_mutants', 'User_peptides', 'WRITE_PARAMS', 'Y_ERR', 'Zero_Filling', 'FilterSpuriousPeaks', 'Spurious_peak_thresh']
@@ -1053,6 +1053,18 @@ def Filter_spurious_peaks(Y, thresh=5):  #function by AB
                 filteredy[i]=y
     return filteredy
 
+
+def Limit_MZ(mz, y, peptide, charge, mod_dic={}):
+    CI =  get_na_isotope(peptide,charge, mod_dict=mod_dic)
+    width = np.std(CI/np.sum(CI)) #standard deviation of natural isotopic distribution
+    maxmz = mz[0] + width/charge + count_amides(peptide)/charge  
+    #mz = mz[np.where(mz<=maxmz)]
+    #y = y[np.where(mz<=maxmz)]
+    y[np.where(mz>=maxmz)] = 0
+    return mz, y
+
+
+
 ## Function to perform the fits on the metadf list of spectra
 def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame(),update_deutdata = False):
     '''
@@ -1286,7 +1298,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
             n_time_reps = len(time_reps)
             centroidUD_all = []
             for r in time_reps:
-                focal_data = deutdata.copy()[(deutdata.time==0.0) & (deutdata.rep==r)]
+                focal_data = deutdata.copy()[(deutdata.time==0.0) & (deutdata.rep==r)] #AB: extracts the undeuterated times
                 mz=np.array(focal_data.mz.copy()) #AB note: these mz values were previously pre-filtered to only correspond to expected ones given the peptide (i.e. peptide molecular mass + differnet nubmers of deuterons) using the peak_picker ( I think that's the name?) function
                 y=np.array(focal_data.Intensity.copy())  #AB note: the variable y are the intensities again only at m/z values that are expected for the peptide 
                 Noise += max(y)/n_time_reps
@@ -1316,7 +1328,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
             n_time_reps = len(time_reps)
             centroidTD_all = []
             for r in time_reps:
-                focal_data = deutdata.copy()[(deutdata.time==config.FullDeut_Time) & (deutdata.rep==r)]
+                focal_data = deutdata.copy()[(deutdata.time==config.FullDeut_Time) & (deutdata.rep==r)] #AB: extracts the fully deuterated times
                 mz=np.array(focal_data.mz.copy())
                 y=np.array(focal_data.Intensity.copy())
                 Noise += max(y)/n_time_reps
@@ -1388,9 +1400,20 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                 envelope_height = focal_data['Intensity'].max() * config.Env_threshold #AB: typically config.Evn_threshold = 0.1, and so this variable envelope_height = 0.1* the maximum intensity  
                 env, env_Int = get_mz_env(envelope_height,focal_data,pts=True) #AB: env is the set of all m/zs in teh envelope, env_INT is the leftmost intensity 
                 
+                #AB: I think this would be the place to limit the range--for both m/z and y 
                 mz=np.array(focal_data.mz.copy())
                 y=np.array(focal_data.Intensity.copy()) #AB: I believe this y is the variable that you may want to filter for spurious peaks
+                
                 #Following lines are by AB
+
+                if config.LimitMZRange:
+                    mz, y = Limit_MZ(mz, y, peptide, charge, mod_dic=mod_dic)
+                # if config.LimitMZRange:
+                #     width = np.std(Current_Isotope/np.sum(Current_Isotope)) #standard deviation of natural isotopic distribution
+                #     maxmz = mz[0] + width/charge + count_amides(peptide)/charge  
+                #     mz = mz[np.where(mz<=maxmz)]
+                #     y = y[np.where(mz<=maxmz)]
+                
                 if config.FilterSpuriousPeaks:
                     y = Filter_spurious_peaks(y, thresh=config.Spurious_peak_thresh)
                 #x=np.full(y.shape,len(y))
@@ -1405,7 +1428,7 @@ def run_hdx_fits(metadf,user_deutdata=pd.DataFrame(),user_rawdata=pd.DataFrame()
                 #in that case, thsi formula will come out to about 2
                 #this asymmetry metric can be used (although isn't by default) to constrain # of modes for fit. I didn't read into this yet
                 ynorm_factor = np.nansum(y)  #AB: if spurious peaks have been filtered, thenthis normalization factor will be smaller. In this latest version I changed from sum to nansum as spurious peaks are made nans
-                y_norm = y / ynorm_factor # 50secs with vs 2 mins without normalization
+                y_norm = y / ynorm_factor 
                 
                 if config.Scale_Y_Values: #AB: this is by default the case 
                     scale_y = ynorm_factor
