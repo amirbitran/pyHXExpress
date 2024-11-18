@@ -170,6 +170,16 @@ def Plot_spectrum(deutdata, fitparams, sample, peptide, charge, deut_time, reps,
             ax.set_ylabel('Intensity/Max Int.', fontsize=20)
         else:
             ax.set_ylabel('Intensity', fontsize=20)
+    
+    # Get current x limits
+    x_min, x_max = ax.get_xlim()
+    x_min = np.round(x_min)
+    x_max = np.round(x_max)
+    #x_min = 5*np.floor(x_min/5) #convert so that it's always multiples of 5 on the axis
+    #x_max = 5*np.ceil(x_max/5)
+
+    # Set x ticks every 5 units
+    ax.set_xticks(np.arange(x_min, x_max + 1, 5))
     ax.tick_params(labelsize=20)
 
     return deut
@@ -399,7 +409,7 @@ def Ndeut_vs_len(fitparams,samples, lengths, peptide, charge, deut_time, reps,ma
 #         plt.close()
 
 
-def Ndeut_vs_len_3D(fitparams, samples, lengths, peptide, charge, deut_time, reps, savepath=None, smartn_curves=False, pvalue_thresh=np.nan, colors=[], plot_avg = True, plot_replicates=True, ignore_mode = np.nan, elev=40, azim=-60, bar_width=1, bar_depth=0.05, yticklabels=[], patterns = [], ax=None):
+def Ndeut_vs_len_3D(fitparams, samples, lengths, peptide, charge, deut_times, reps, savepath=None, smartn_curves=False, pvalue_thresh=np.nan, colors=[], plot_avg = True, plot_replicates=True, ignore_mode = np.nan, elev=40, azim=-60, bar_width=1, bar_depth=0.05, yticklabels=[], patterns = [], ax=None):
     """
     Makes bar plots that are stacked one behind the other for different lengths
     if plot_avg, then this averages over technical replicates, but also lgihtly plots the individual replicates as nearly transparent bars
@@ -408,7 +418,15 @@ def Ndeut_vs_len_3D(fitparams, samples, lengths, peptide, charge, deut_time, rep
     If so, it renormalizes the others to add up to one
     By default doesn't do this
 
+    New on November 18 2024: the deut_times paramter can either be a single deuteration time that's used for all samples,
+    or a list of deuteration times, one for each sample
+    If the latter, it gives you a way to also plot mode parameters vs deuteration time for a given condition--in that case just make sure that every entry of "samples" is the same condition
+
+    Note that this isn't compatible with Choose_n_curves at the moment--that funciton still expects a single deuteration time, and by default will use the first entry if you provdie a list
     """
+
+    if np.shape(deut_times)==():
+        deut_times = [deut_times for s in range(len(samples))]
     if len(yticklabels)==0:
         #yticklabels = ['{} AA'.format(l) for l in lengths]
         yticklabels = ['{}'.format(l) for l in lengths]
@@ -432,13 +450,14 @@ def Ndeut_vs_len_3D(fitparams, samples, lengths, peptide, charge, deut_time, rep
     if smartn_curves:
         if np.isnan(pvalue_thresh):
             raise RuntimeError('Must input a p-value threshold if using smartn_curves feature. \n Recommended to use config.Ncurve_p_accept to ensure consistency w fit')
-        ncurves = Choose_ncurves(fitparams, samples, lengths, peptide, charge, deut_time, pvalue_thresh, verboise=False)
+        ncurves = Choose_ncurves(fitparams, samples, lengths, peptide, charge, deut_times[0], pvalue_thresh, verboise=False)
     else:
         ncurves = np.nan * np.ones(len(samples))
     linestyles = [':', '--', '-.']
     allmeans = np.nan*np.ones((len(reps), len(samples), 3)) #stores the mean # of deuterons,  replicates x lengths x nmodes. Allows for up to 3 nmodes, but doesn't have to use all of them
     allfracs = np.nan*np.ones((len(reps), len(samples), 3)) #same as above for the fracs parameter
     for i, (sample, length) in enumerate(zip(samples, lengths)):
+        deut_time = deut_times[i]
         for r, rep in enumerate(reps):
             fits = hxex.filter_df(fitparams, sample, peptide_ranges = Convert_to_pepstring(*peptide), charge=charge, timept=[deut_time for i in range(len(reps))], rep=rep)
             nboot_list = list(fits['nboot'].unique())

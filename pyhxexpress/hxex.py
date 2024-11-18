@@ -472,40 +472,41 @@ def read_specexport_data(csv_files,spec_path,row,keep_raw,mod_dict={}):
     peaks=[]
 
     for f in csv_files:
-        fileinfo = f.rsplit('.',1)[0].split('-')
-        # print(fileinfo, len(fileinfo))
-        rep = float(fileinfo[-2])
-        if fileinfo[0] == 'Non': time = 0.0 
-        elif fileinfo[0] == 'Full': time = config.FullDeut_Time #1e6
-        else: time = float(fileinfo[0][:-1]) * np.power(60.0,'smh'.find(fileinfo[0][-1]))
-        raw = pd.read_csv( os.path.join(spec_path,f),delimiter=",",header=None, names=["mz","Intensity"]).dropna()
-        raw = raw.sort_values('mz').reset_index()
-        peaks = peak_picker( raw, row['peptide'], row['charge'],resolution=config.Peak_Resolution,mod_dict=mod_dict ) #AB: This specifically includes data at m/z values expected for hte sequence
-        peaks['time']=time
-        peaks['rep']=rep
-        peaks['data_id']=row.name
-        peaks['sample']=row['sample']
-        peaks['charge']=row['charge']
-        peaks['peptide']=row['peptide']
-        peaks['peptide_range']=row['peptide_range']
-        try:  peaks[['start_seq','end_seq']] = peaks['peptide_range'].str.split('-',expand=True).astype('int')
-        except: pass
-        peaks['file']=row['file']
-        if peaks.Intensity.sum() > 0:
-            dfs.append( peaks )         
-        else: print (" File "+f+" contains no Intensity data at expected m/z values") #peaks['sample']+' '+peaks['peptide']+
-        if keep_raw:
-            raw['time']=time
-            raw['data_id']=row.name
-            raw['sample']=row['sample']
-            raw['peptide']=row['peptide']
-            raw['charge']=row['charge']
-            raw['rep']=rep
-            raw['peptide_range']=row['peptide_range']
-            try: raw[['start_seq','end_seq']] = raw['peptide_range'].str.split('-',expand=True).astype('int')
-            except: pass 
-            raw['file']=row['file']
-            rawdata = pd.concat([rawdata,raw],ignore_index=True)
+        if 'Blank' not in f: #added by AB so that blanks are not read
+            fileinfo = f.rsplit('.',1)[0].split('-')
+            # print(fileinfo, len(fileinfo))
+            rep = float(fileinfo[-2])
+            if fileinfo[0] == 'Non': time = 0.0 
+            elif fileinfo[0] == 'Full': time = config.FullDeut_Time #1e6
+            else: time = float(fileinfo[0][:-1]) * np.power(60.0,'smh'.find(fileinfo[0][-1]))
+            raw = pd.read_csv( os.path.join(spec_path,f),delimiter=",",header=None, names=["mz","Intensity"]).dropna()
+            raw = raw.sort_values('mz').reset_index()
+            peaks = peak_picker( raw, row['peptide'], row['charge'],resolution=config.Peak_Resolution,mod_dict=mod_dict ) #AB: This specifically includes data at m/z values expected for hte sequence
+            peaks['time']=time
+            peaks['rep']=rep
+            peaks['data_id']=row.name
+            peaks['sample']=row['sample']
+            peaks['charge']=row['charge']
+            peaks['peptide']=row['peptide']
+            peaks['peptide_range']=row['peptide_range']
+            try:  peaks[['start_seq','end_seq']] = peaks['peptide_range'].str.split('-',expand=True).astype('int')
+            except: pass
+            peaks['file']=row['file']
+            if peaks.Intensity.sum() > 0:
+                dfs.append( peaks )         
+            else: print (" File "+f+" contains no Intensity data at expected m/z values") #peaks['sample']+' '+peaks['peptide']+
+            if keep_raw:
+                raw['time']=time
+                raw['data_id']=row.name
+                raw['sample']=row['sample']
+                raw['peptide']=row['peptide']
+                raw['charge']=row['charge']
+                raw['rep']=rep
+                raw['peptide_range']=row['peptide_range']
+                try: raw[['start_seq','end_seq']] = raw['peptide_range'].str.split('-',expand=True).astype('int')
+                except: pass 
+                raw['file']=row['file']
+                rawdata = pd.concat([rawdata,raw],ignore_index=True)
     if len(dfs) > 0: 
         deutdata = pd.concat(dfs, ignore_index=True,)
         time_points = sorted(set(deutdata.time))
