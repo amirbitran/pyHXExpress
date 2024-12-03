@@ -7,6 +7,8 @@ import pyhxexpress.hxex as hxex
 import warnings
 from mpl_toolkits.mplot3d import Axes3D
 
+from scipy.stats import norm
+
 #import pyhxexpress.config as config
 #def hxex_reload():
 #    importlib.reload(hxex)
@@ -23,6 +25,16 @@ pd.set_option('display.max_colwidth', None)
 import os
 from Bio import SeqIO
 from Bio.Seq import Seq
+
+
+def is_zero_dimensional(variable): #thanks GPT
+    if isinstance(variable, (int, float, complex, str, type(None))):
+        return True
+    elif isinstance(variable, np.ndarray):
+        return variable.ndim == 0  # Check if numpy array is zero-dimensional
+    elif np.isscalar(variable):  # For numpy scalars
+        return True
+    return False
 
 
 def pep2str(peptide): #converts (4,18) into '0004-0018'
@@ -74,7 +86,7 @@ def Convert_to_pepstring(start, end): #oh lol I wrote two redundant functiosn th
         end = '0{}'.format(end)
     return '{}-{}'.format(start, end)
     
-def Plot_spectrum(deutdata, fitparams, sample, peptide, charge, deut_time, reps, deut_color='blue', undeut_color='gray', plot_undeut=True, norm='Sum', labelx=True, labely=True, ax=None, rawdata = [], Spurious_peak_thresh=5, LimitMZRange=True, best_n_curves = np.nan):
+def Plot_spectrum(deutdata, fitparams, sample, peptide, charge, deut_time, reps, deut_color='blue', undeut_color='gray', plot_undeut=True, norm='Sum', labelx=True, labely=True, ax=None, rawdata = [], Spurious_peak_thresh=5, LimitMZRange=True, best_n_curves = np.nan, fontsize=20):
     #By default plots only the intensity at the expected m/z peaks and the fit
     #you can also have it plot the raw data if you pass it a rawdata dataframe
     #TODO: Have it incorporate the limited m/z range
@@ -106,7 +118,7 @@ def Plot_spectrum(deutdata, fitparams, sample, peptide, charge, deut_time, reps,
         ydeutnorm = 1
     
     if type(rawdata)==pd.core.frame.DataFrame: #then we plot the raw spectra
-        rawdeut = hxex.filter_df(deutdata, sample, peptide_ranges = Convert_to_pepstring(*peptide), charge=charge, timept=[deut_time for i in range(len(reps))], rep=reps)
+        rawdeut = hxex.filter_df(rawdata, sample, peptide_ranges = Convert_to_pepstring(*peptide), charge=charge, timept=[deut_time for i in range(len(reps))], rep=reps)
         rawint = rawdeut.Intensity
         ax.plot(charge*rawdeut.mz - charge, rawint, alpha=0.5, color='k')
 
@@ -162,14 +174,14 @@ def Plot_spectrum(deutdata, fitparams, sample, peptide, charge, deut_time, reps,
                 
 
     if labelx:
-        ax.set_xlabel('mass (Da)', fontsize=20)
+        ax.set_xlabel('mass (Da)', fontsize=fontsize)
     if labely:
         if norm=='Sum':
-            ax.set_ylabel('Norm. Intensity', fontsize=20)
+            ax.set_ylabel('Norm. Intensity', fontsize=fontsize)
         elif norm=='Max':
-            ax.set_ylabel('Intensity/Max Int.', fontsize=20)
+            ax.set_ylabel('Intensity/Max Int.', fontsize=fontsize)
         else:
-            ax.set_ylabel('Intensity', fontsize=20)
+            ax.set_ylabel('Intensity', fontsize=fontsize)
     
     # Get current x limits
     x_min, x_max = ax.get_xlim()
@@ -180,12 +192,12 @@ def Plot_spectrum(deutdata, fitparams, sample, peptide, charge, deut_time, reps,
 
     # Set x ticks every 5 units
     ax.set_xticks(np.arange(x_min, x_max + 1, 5))
-    ax.tick_params(labelsize=20)
+    ax.tick_params(labelsize=fontsize)
 
     return deut
 
 
-def Spec_vs_len(deutdata, fitparams,samples, lengths, peptide, charge, deut_time, reps, figsize = (16,6), xlim= None, norm='Max', plot_undeut=True, rawdata=[], savepath = None, LimitMZRange=True, smartn_curves = False, pvalue_thresh=np.nan, titles=[] ):
+def Spec_vs_len(deutdata, fitparams,samples, lengths, peptide, charge, deut_time, reps, figsize = (16,6), xlim= None, norm='Max', plot_undeut=True, rawdata=[], savepath = None, LimitMZRange=True, smartn_curves = False, pvalue_thresh=np.nan, titles=[], fontsize=12 ):
     #plots spectrum vs length
     #You can decide to let it choose # of curves at each length if you set smartn_curves to True
 
@@ -212,7 +224,7 @@ def Spec_vs_len(deutdata, fitparams,samples, lengths, peptide, charge, deut_time
             else:
                 labelx, labely = (False, False)
         
-            Plot_spectrum(deutdata, fitparams,sample, peptide, charge, deut_time, rep, norm=norm,ax = ax[rep-1,i],labelx=labelx, labely=labely, plot_undeut=plot_undeut, rawdata=rawdata,LimitMZRange=LimitMZRange, best_n_curves = ncurves[i])
+            Plot_spectrum(deutdata, fitparams,sample, peptide, charge, deut_time, rep, norm=norm,ax = ax[rep-1,i],labelx=labelx, labely=labely, plot_undeut=plot_undeut, rawdata=rawdata,LimitMZRange=LimitMZRange, best_n_curves = ncurves[i], fontsize=fontsize)
             
             ax[rep-1,i].set_title(titles[i], fontsize=20)
             if xlim is not None:
@@ -417,6 +429,10 @@ def Ndeut_vs_len_3D(fitparams, samples, lengths, peptide, charge, deut_times, re
     You can tell it to ignore one of the modes (if it's spurious), IN ONE INDEXING
     If so, it renormalizes the others to add up to one
     By default doesn't do this
+    New on Dec 2 2024: This ignore_mode can either be a single value (in which case it's applied to all samples), or a list
+    of the same lenght as samples
+    (in case you want different modes to be ignored for diff samples, e.g. if one sample has a spuriously fitted mode)
+    Any or all in that list can be nan
 
     New on November 18 2024: the deut_times paramter can either be a single deuteration time that's used for all samples,
     or a list of deuteration times, one for each sample
@@ -430,6 +446,9 @@ def Ndeut_vs_len_3D(fitparams, samples, lengths, peptide, charge, deut_times, re
     if len(yticklabels)==0:
         #yticklabels = ['{} AA'.format(l) for l in lengths]
         yticklabels = ['{}'.format(l) for l in lengths]
+    
+    if is_zero_dimensional(ignore_mode):
+        ignore_mode = [ignore_mode for l in range(len(samples))]
     
     if ax==None:
         fig = plt.figure()
@@ -473,9 +492,9 @@ def Ndeut_vs_len_3D(fitparams, samples, lengths, peptide, charge, deut_times, re
                 params_best_fit = [float(x) for x in params_best_fit.split()]
                 scaler, nexs, mus, fracs = hxex.get_params(*params_best_fit, sort=True, norm=True, unpack=True)  # AB: If we removed spurious peaks, the scaler is gonna be off...
                 means = np.multiply(nexs, mus) #for each mode, mean # of deuterons
-                if ~np.isnan(ignore_mode) and ignore_mode <=len(means):
-                    means[ignore_mode-1] = np.nan
-                    fracs[ignore_mode-1] = np.nan
+                if ~np.isnan(ignore_mode[i]) and ignore_mode[i] <=len(means):
+                    means[ignore_mode[i]-1] = np.nan
+                    fracs[ignore_mode[i]-1] = np.nan
                     fracs = fracs/np.nansum(fracs) #renormalize fractions
                 #print(means)
                 #ax.bar(means, fracs, zs=i, zdir='y', edgecolor=colors[i], alpha=1.0, facecolor='none', linestyle=linestyles[r])
@@ -540,7 +559,164 @@ def Ndeut_vs_len_3D(fitparams, samples, lengths, peptide, charge, deut_times, re
         plt.close()
 
 
-                
+def Ndeut_vs_len_3DGauss(fitparams, samples, lengths, peptide, charge, deut_times, reps, savepath=None, smartn_curves=False, pvalue_thresh=np.nan, colors=[], plot_avg = True, plot_replicates=True, ignore_mode = np.nan, elev=40, azim=-60, bar_width=1, bar_depth=0.05, yticklabels=[], patterns = [], ax=None, sd=0.2):
+    """
+    For each of multiple conditions c (e.g. translation times or lengths), 
+    plots in 3D the deuteration d of each mode as a Gaussian centered at x=c, y=d with height f,
+    corresponding to the population fraction of that mode
+    The standard dev for each of these Gaussians is sd
+
+
+    if plot_avg, then this averages over technical replicates, but also lgihtly plots the individual replicates as nearly transparent bars
+
+    You can tell it to ignore one of the modes (if it's spurious), IN ONE INDEXING
+    If so, it renormalizes the others to add up to one
+    By default doesn't do this
+    New on Dec 2 2024: This ignore_mode can either be a single value (in which case it's applied to all samples), or a list
+    of the same lenght as samples
+    (in case you want different modes to be ignored for diff samples, e.g. if one sample has a spuriously fitted mode)
+    Any or all in that list can be nan
+
+    New on November 18 2024: the deut_times paramter can either be a single deuteration time that's used for all samples,
+    or a list of deuteration times, one for each sample
+    If the latter, it gives you a way to also plot mode parameters vs deuteration time for a given condition--in that case just make sure that every entry of "samples" is the same condition
+
+    Note that this isn't compatible with Choose_n_curves at the moment--that funciton still expects a single deuteration time, and by default will use the first entry if you provdie a list
+    """
+
+    if np.shape(deut_times)==():
+        deut_times = [deut_times for s in range(len(samples))]
+    if len(yticklabels)==0:
+        #yticklabels = ['{} AA'.format(l) for l in lengths]
+        yticklabels = ['{}'.format(l) for l in lengths]
+    
+    if is_zero_dimensional(ignore_mode):
+        ignore_mode = [ignore_mode for l in range(len(samples))]
+    
+    if ax==None:
+        fig = plt.figure()
+        fig.set_size_inches((10, 7.5))
+        fig.patch.set_facecolor('white')  # Set figure background color to white
+        ax = fig.add_subplot(projection='3d')
+    ax.xaxis.pane.set_facecolor('white')
+    ax.yaxis.pane.set_facecolor('white')
+    ax.zaxis.pane.set_facecolor('white')
+    #set the view angle
+    ax.view_init(elev=elev, azim=azim)  # Adjust these values to change the view angle. By default matplotlib uses 30 and -60--in my fucntion the defaults are 40 and -60
+        
+    xrange = np.arange(-0.5, 0.8*(peptide[1] - peptide[0]), 0.01)
+    if len(colors) == 0:
+        colormap = plt.cm.jet
+        values = np.linspace(0, 1, len(samples))
+        colors = [colormap(value) for value in values]
+    if smartn_curves:
+        if np.isnan(pvalue_thresh):
+            raise RuntimeError('Must input a p-value threshold if using smartn_curves feature. \n Recommended to use config.Ncurve_p_accept to ensure consistency w fit')
+        ncurves = Choose_ncurves(fitparams, samples, lengths, peptide, charge, deut_times[0], pvalue_thresh, verboise=False)
+    else:
+        ncurves = np.nan * np.ones(len(samples))
+    linestyles = [':', '--', '-.']
+    allmeans = np.nan*np.ones((len(reps), len(samples), 3)) #stores the mean # of deuterons,  replicates x lengths x nmodes. Allows for up to 3 nmodes, but doesn't have to use all of them
+    allfracs = np.nan*np.ones((len(reps), len(samples), 3)) #same as above for the fracs parameter
+    for i, (sample, length) in enumerate(zip(samples, lengths)):
+        deut_time = deut_times[i]
+        for r, rep in enumerate(reps):
+            fits = hxex.filter_df(fitparams, sample, peptide_ranges = Convert_to_pepstring(*peptide), charge=charge, timept=[deut_time for i in range(len(reps))], rep=rep)
+            nboot_list = list(fits['nboot'].unique())
+            if len(nboot_list) > 0:  # a good proxy for the fact that this sample's parameters even exist
+                if np.isnan(ncurves[i]):  # you haven't selected smart n curves, so use the value selected by the origianl hxex algorithm (which may vary wildly from replicate to replicate and lenght to length)
+                    if min(nboot_list) > 0:
+                        best_n_curves = fits[fits['nboot'] == 1]['ncurves'].values[0]  # from bootstrap #1, we can extract how many curves were used
+                    else:
+                        best_n_curves = fits['ncurves'].values[-1]
+                else:
+                    best_n_curves = ncurves[i]
+                params_best_fit = fits[(fits['nboot'] == 0) & (fits['ncurves'] == best_n_curves)]['Fit_Params'].values[0]
+                params_best_fit = [float(x) for x in params_best_fit.split()]
+                scaler, nexs, mus, fracs = hxex.get_params(*params_best_fit, sort=True, norm=True, unpack=True)  # AB: If we removed spurious peaks, the scaler is gonna be off...
+                means = np.multiply(nexs, mus) #for each mode, mean # of deuterons
+                if ~np.isnan(ignore_mode[i]) and ignore_mode[i] <=len(means):
+                    means[ignore_mode[i]-1] = np.nan
+                    fracs[ignore_mode[i]-1] = np.nan
+                    fracs = fracs/np.nansum(fracs) #renormalize fractions
+                #print(means)
+                #ax.bar(means, fracs, zs=i, zdir='y', edgecolor=colors[i], alpha=1.0, facecolor='none', linestyle=linestyles[r])
+                if plot_replicates:
+                    if plot_avg:
+                        alpha=0.2
+                    else:
+                        alpha=0.8
+                    #ax.bar(means, fracs, zs=i, zdir='y', edgecolor=colors[i], alpha=alpha, facecolor=colors[i], linestyle=linestyles[r])    
+                    nni = ~np.isnan(means)
+                    #ax.bar3d(means[nni], [i for count in range(nni.sum())], [0 for count in range(nni.sum())], dx = [bar_width for count in range(nni.sum())], dy = [bar_depth for count in range(nni.sum())], dz = fracs[nni],  alpha=0.9, color=colors[i], shade=False)
+                    #ax.bar(means[nni], fracs[nni], zs=i, zdir='y', edgecolor=colors[i],  facecolor='none', linestyle=linestyles[r], width=bar_width) 
+                    ax.plot(xrange, MultiGaussian(xrange, means[nni], fracs[nni], sd=sd),zs=i, zdir = 'y', color=colors[i], alpha=alpha)        
+                    #print('Here is the color from data plot: {}'.format(colors[i]))
+                allmeans[r,i,0:len(means)] = means
+                allfracs[r,i,0:len(fracs)] = fracs
+    if plot_avg: #plots the avg over technical reps
+        for i, (sample, length, color) in enumerate(zip(np.flip(samples), np.flip(lengths), np.flip(colors, axis=0))):
+            #print('Here is the color from means plot: {}'.format(color))
+            #print(allmeans[:,i,:])
+            z=len(samples)-i-1
+            x = np.nanmean(allmeans[:,z,:], axis=0)
+            y = np.nanmean(allfracs[:,z,:], axis=0)
+            nni = ~np.isnan(x)
+
+            #if sample=='l35-Released':
+            #    alpha=0.2
+            #elif sample=='Halotag297':
+            #    alpha=1
+            #else:
+            #    alpha=0.9
+            #alpha = 1 - (i+1)/len(samples)
+    
+
+            if plot_replicates:
+                alpha=0.8
+            else:
+                #edgecolor=color
+                alpha=0.8
+            #print(y[nni])
+            ax.plot(xrange, MultiGaussian(xrange, x[nni], y[nni], sd=sd), zs=z, zdir = 'y', color=colors[i], alpha=alpha)
+            # if len(patterns)>0:
+            #     ax.bar(x[nni], y[nni], zs=z, zdir='y',  alpha=alpha, facecolor=color, edgecolor = edgecolor,width=bar_width, hatch = patterns[len(samples)-i-1],linestyle='-')
+            #     #ax.bar(x[nni], y[nni], zs=z, zdir='y',  facecolor=color, width=bar_width, hatch = patterns[len(samples)-i-1])
+            # else:
+            #     ax.bar(x[nni], y[nni], zs=z, zdir='y',  alpha=alpha, facecolor=color, width=bar_width, edgecolor = edgecolor, linestyle='-')
+            #     #ax.bar(x[nni], y[nni], zs=z, zdir='y',  facecolor=color, width=bar_width)
+
+            #print([i for count in range(nni.sum())])
+            #ax.bar3d(x[nni]-bar_width/2, [i for count in range(nni.sum())], [0 for count in range(nni.sum())], dx = [bar_width for count in range(nni.sum())], dy = [bar_depth for count in range(nni.sum())], dz = y[nni],  alpha=0.9, color=colors[i], shade=True)
+    ax.set_ylim((-0.5, len(samples)))
+    ax.set_yticks([i for i in range(len(samples))])
+    ax.set_yticklabels(yticklabels, ha='left',)
+    ax.set_ylabel('Length (AA)', labelpad=10)
+    ax.set_xlabel('Mean # deut.', labelpad=0.01)
+    ax.set_zlabel('Pop. frac.', labelpad=0.01)
+    for label in ax.get_yticklabels():
+        label.set_verticalalignment('center')
+    #fig.subplots_adjust(left=0.2, right=0.9, top=0.8, bottom=0.2)  # Adjust the margins
+    if savepath is not None:
+        plt.savefig(savepath, dpi=300, bbox_inches='tight')
+        plt.close()
+
+
+def MultiGaussian(xrange, deuts, fracs, sd=0.2):
+    """
+    This returns a sum of Gaussians, evaluated over a pre-specified domain (e.g. a np.arange )
+    with respective means given by the values in the array deuts, and heights given by the values in the array fracs
+    The standard deviation for each is given by s.d.
+    """
+    if len(deuts)==0:
+        y = np.nan*np.zeros(len(xrange)) #don't even plot anything if no fit parameters were obtained
+    else:
+        y = np.zeros(len(xrange))
+    for i, (deut, frac) in enumerate(zip(deuts, fracs)):
+        y+=frac*norm.pdf(xrange, deut, sd)*np.sqrt(2*np.pi)*sd #multiplying by sqrt(2pi)*sigma ensures that, if frac=1, the height will be 1
+    return y
+    
+    
 
 def Choose_ncurves(fitparams,samples, lengths, peptide, charge, deut_time, pvalue_thresh, verboise=False): #smartly choose # of curves for each length
     """
