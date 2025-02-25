@@ -1036,22 +1036,26 @@ def predict_pops(trained_model,datafits):
 def Filter_spurious_peaks(Y, thresh=5):  #function by AB
     #Y is an array. We change the ith value to 0 if that value is more than thresh times the value at i-1 and i+1
 
-    #TODO: change this in the next iteration so that it takes as input both the m/z and the intensities (the latter is the current Y variable)
-    #And remove entries from BOTH m/z and Y that are deemed spurious peaks, rather than just setting the Y to 0 
-    #actually no the above isn't gonna work sinec when we fit, we don't acutally input m/z, but rather we input nbins
-    #and simply reducing hte # of bins may cause confusion since the algorithm will have no way to know that you've skipped 
-    #better is to set these values to NaN, then in the CurveFit function, teach it to ignore bins with Nans
     filteredy = cp.deepcopy(Y)
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore')
-        for i in range(1, len(Y)-1):
+        for i in range(0, len(Y)): #1
             y = Y[i]
-            if y/Y[i-1]>thresh and y/Y[i+1]>thresh :
-                #filteredy[i]=0
-                filteredy[i]=np.nan
-                #print('moo!!')
-            else:
-                filteredy[i]=y
+            if i==0: #can only compare to next peak
+                if y/Y[i+1]>thresh: 
+                    filteredy[i]=np.nan
+
+            elif i==len(Y)-1: # can only compare to previou speak
+                if y/Y[i-1]>thresh:
+                    filteredy[i]=np.nan
+            else: #compare to both previous and next peak for all peaks between the first and the last
+                if y/Y[i-1]>thresh and y/Y[i+1]>thresh :
+                    #filteredy[i]=0
+                    filteredy[i]=np.nan
+                    #print('moo!!')
+                else:
+                    filteredy[i]=y
+            
     return filteredy
 
 

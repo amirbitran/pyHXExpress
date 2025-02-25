@@ -197,9 +197,10 @@ def Plot_spectrum(deutdata, fitparams, sample, peptide, charge, deut_time, reps,
     return deut
 
 
-def Spec_vs_len(deutdata, fitparams,samples, lengths, peptide, charge, deut_time, reps, figsize = (16,6), xlim= None, norm='Max', plot_undeut=True, rawdata=[], savepath = None, LimitMZRange=True, smartn_curves = False, pvalue_thresh=np.nan, titles=[], fontsize=12 ):
+def Spec_vs_len(deutdata, fitparams,samples, lengths, peptide, charge, deut_time, reps, figsize = (16,6), xlim= None, norm='Max', plot_undeut=True, rawdata=[], savepath = None, LimitMZRange=True, smartn_curves = False, pvalue_thresh=np.nan, titles=[], fontsize=12, ax = None, return_ncurves=False ):
     #plots spectrum vs length
     #You can decide to let it choose # of curves at each length if you set smartn_curves to True
+    #if you set return_ncurves = True, then it gives you back the values for smartn_curves that it chose at each lenght
 
     if len(titles)==0:
         titles = ['{} AA'.format(length) for length in lengths]
@@ -210,10 +211,10 @@ def Spec_vs_len(deutdata, fitparams,samples, lengths, peptide, charge, deut_time
     else:
         ncurves = np.nan*np.ones(len(samples))
 
-    
-    fig, ax = plt.subplots(2, len(lengths))
-    if len(lengths)==1:
-        ax = np.expand_dims(ax, axis=1)
+    if ax==None:
+        fig, ax = plt.subplots(2, len(lengths))
+        if len(lengths)==1:
+            ax = np.expand_dims(ax, axis=1)
     #display(reps)
     for rep in reps:
         plt.subplots_adjust(left=0.03, right=0.97, wspace=0.5, hspace=0.5, bottom=0.03, top=0.97)
@@ -233,6 +234,9 @@ def Spec_vs_len(deutdata, fitparams,samples, lengths, peptide, charge, deut_time
         fig.savefig(savepath, dpi=300, bbox_inches='tight')
         plt.close()
         print('Plots of all spectra vs length saved to {}'.format(savepath))
+    
+    if return_ncurves:
+        return ncurves
         
 def ReadRawData(metadf_run, sample, peptide, charge, deut_time, rep ):
     #A simple function to get raw data from SpecExport csv file, haven't extensivly tested
@@ -559,7 +563,7 @@ def Ndeut_vs_len_3D(fitparams, samples, lengths, peptide, charge, deut_times, re
         plt.close()
 
 
-def Ndeut_vs_len_3DGauss(fitparams, samples, lengths, peptide, charge, deut_times, reps, savepath=None, smartn_curves=False, pvalue_thresh=np.nan, colors=[], plot_avg = True, plot_replicates=True, ignore_mode = np.nan, elev=40, azim=-60, bar_width=1, bar_depth=0.05, yticklabels=[], patterns = [], ax=None, sd=0.2):
+def Ndeut_vs_len_3DGauss(fitparams, samples, lengths, peptide, charge, deut_times, reps, savepath=None, smartn_curves=False, pvalue_thresh=np.nan, colors=[], plot_avg = True, plot_replicates=True, ignore_mode = np.nan, elev=60, azim=-90, bar_width=1, bar_depth=0.05, yticklabels=[], patterns = [], ax=None, sd=0.2):
     """
     For each of multiple conditions c (e.g. translation times or lengths), 
     plots in 3D the deuteration d of each mode as a Gaussian centered at x=c, y=d with height f,
@@ -639,17 +643,12 @@ def Ndeut_vs_len_3DGauss(fitparams, samples, lengths, peptide, charge, deut_time
                     means[ignore_mode[i]-1] = np.nan
                     fracs[ignore_mode[i]-1] = np.nan
                     fracs = fracs/np.nansum(fracs) #renormalize fractions
-                #print(means)
-                #ax.bar(means, fracs, zs=i, zdir='y', edgecolor=colors[i], alpha=1.0, facecolor='none', linestyle=linestyles[r])
                 if plot_replicates:
                     if plot_avg:
                         alpha=0.2
                     else:
                         alpha=0.8
-                    #ax.bar(means, fracs, zs=i, zdir='y', edgecolor=colors[i], alpha=alpha, facecolor=colors[i], linestyle=linestyles[r])    
                     nni = ~np.isnan(means)
-                    #ax.bar3d(means[nni], [i for count in range(nni.sum())], [0 for count in range(nni.sum())], dx = [bar_width for count in range(nni.sum())], dy = [bar_depth for count in range(nni.sum())], dz = fracs[nni],  alpha=0.9, color=colors[i], shade=False)
-                    #ax.bar(means[nni], fracs[nni], zs=i, zdir='y', edgecolor=colors[i],  facecolor='none', linestyle=linestyles[r], width=bar_width) 
                     ax.plot(xrange, MultiGaussian(xrange, means[nni], fracs[nni], sd=sd),zs=i, zdir = 'y', color=colors[i], alpha=alpha)        
                     #print('Here is the color from data plot: {}'.format(colors[i]))
                 allmeans[r,i,0:len(means)] = means
@@ -663,39 +662,50 @@ def Ndeut_vs_len_3DGauss(fitparams, samples, lengths, peptide, charge, deut_time
             y = np.nanmean(allfracs[:,z,:], axis=0)
             nni = ~np.isnan(x)
 
-            #if sample=='l35-Released':
-            #    alpha=0.2
-            #elif sample=='Halotag297':
-            #    alpha=1
-            #else:
-            #    alpha=0.9
-            #alpha = 1 - (i+1)/len(samples)
-    
-
             if plot_replicates:
                 alpha=0.8
             else:
                 #edgecolor=color
-                alpha=0.8
-            #print(y[nni])
+                alpha=1
             ax.plot(xrange, MultiGaussian(xrange, x[nni], y[nni], sd=sd), zs=z, zdir = 'y', color=colors[i], alpha=alpha)
-            # if len(patterns)>0:
-            #     ax.bar(x[nni], y[nni], zs=z, zdir='y',  alpha=alpha, facecolor=color, edgecolor = edgecolor,width=bar_width, hatch = patterns[len(samples)-i-1],linestyle='-')
-            #     #ax.bar(x[nni], y[nni], zs=z, zdir='y',  facecolor=color, width=bar_width, hatch = patterns[len(samples)-i-1])
-            # else:
-            #     ax.bar(x[nni], y[nni], zs=z, zdir='y',  alpha=alpha, facecolor=color, width=bar_width, edgecolor = edgecolor, linestyle='-')
-            #     #ax.bar(x[nni], y[nni], zs=z, zdir='y',  facecolor=color, width=bar_width)
 
-            #print([i for count in range(nni.sum())])
-            #ax.bar3d(x[nni]-bar_width/2, [i for count in range(nni.sum())], [0 for count in range(nni.sum())], dx = [bar_width for count in range(nni.sum())], dy = [bar_depth for count in range(nni.sum())], dz = y[nni],  alpha=0.9, color=colors[i], shade=True)
+    #deal with y axis cosmetics
     ax.set_ylim((-0.5, len(samples)))
     ax.set_yticks([i for i in range(len(samples))])
-    ax.set_yticklabels(yticklabels, ha='left',)
-    ax.set_ylabel('Length (AA)', labelpad=10)
+    ax.set_yticklabels(yticklabels, ha='left', verticalalignment='bottom')
+    
+    #setting the y axis padding is a bit tricky sicne I want it to align wtih the z axis, whose position I"ve set in data units (1 to the right of end of plot) rather than poitns
+    #so we convert 1 data unit to points so that we can use the labelpad option which takes points as the unit
+    #ALTHOUGH THIS DOESN'T WORK ANYWAYS SO COMMENTING IT OUT
+    # Desired label padding in data units
+    # desired_padding_data_units = 1.5
+    # # Convert data units to points for the y-axis
+    # y_data_to_display = ax.transData.transform((0, desired_padding_data_units))  # Transform data to display
+    # y_origin_to_display = ax.transData.transform((0, 0))  # Transform origin to display
+    # padding_points = y_data_to_display[1] - y_origin_to_display[1]  # Difference in display (points)
+    # # Set the y-axis label with calculated padding
+    # ax.set_ylabel('Length (AA)', labelpad=padding_points)
+    ax.set_ylabel('Length (AA)', labelpad=13)
+
+
+
+    #deal with x axis, pretty easy
     ax.set_xlabel('Mean # deut.', labelpad=0.01)
-    ax.set_zlabel('Pop. frac.', labelpad=0.01)
-    for label in ax.get_yticklabels():
-        label.set_verticalalignment('center')
+
+    #Deal with z axis. It turns out that to optimize alignment, it's better to set both the tick labels and the axis label as text objects rather than using the built in features
+    #z axis label, worked best as a text object
+    ax.text2D(0.95, 0.99, "Pop. frac.", transform=ax.transAxes, rotation=0, ha='left', va='center')
+    #ax.tick_params(axis='z', pad=10)
+    #ax.set_zticks([0, 0.25, 0.5, 0.75])
+    #plt.setp(ax.get_zticklabels(), verticalalignment='top')
+    #set the z ticks as text instances to improve alignment
+    ax.set_zticks([0, 0.25, 0.5, 0.75], labels=[])
+    zticks = [0, 0.25, 0.5, 0.75]
+    for tick in zticks:
+        ax.text(ax.get_xlim()[1]+1 , ax.get_ylim()[1]+0 , tick, '{}'.format(tick), ha='left', va='center')
+
+
+
     #fig.subplots_adjust(left=0.2, right=0.9, top=0.8, bottom=0.2)  # Adjust the margins
     if savepath is not None:
         plt.savefig(savepath, dpi=300, bbox_inches='tight')
@@ -715,6 +725,93 @@ def MultiGaussian(xrange, deuts, fracs, sd=0.2):
     for i, (deut, frac) in enumerate(zip(deuts, fracs)):
         y+=frac*norm.pdf(xrange, deut, sd)*np.sqrt(2*np.pi)*sd #multiplying by sqrt(2pi)*sigma ensures that, if frac=1, the height will be 1
     return y
+    
+
+
+def FracFolded_vs_len(fitparams, samples, lengths, peptide, charge, deut_time, reps,  smartn_curves=False, pvalue_thresh=np.nan,color=None, ax=None, label=None, ignore_mode=np.nan, normalize = True, folded_index=-1, linestyle = '-', markerstyle = '.', Return = False, plot=True, backups = {} ):
+    """
+    Plots fraction protected vs sample for a given peptide and charge
+    If normalize = True, then normalizes that fraction protected by the value in a sample that is deemed to be "folded"
+    The index for that sample is the one given by folded_index
+
+    New on Dec 11 2024, added an option to provide a backup peptide/charge combo in case first choice is missing
+    That's in the form of a dic, where the keys are (peptide, charge) with peptide itself being a tuple, and the values are (backup_peptide, backup_charge)
+    """
+    if ax==None and plot:
+        fig, ax = plt.subplots()
+    
+    if is_zero_dimensional(ignore_mode):
+        ignore_mode = [ignore_mode for l in range(len(samples))]
+
+    if color==None:
+        color='blue'
+    if smartn_curves:
+        if np.isnan(pvalue_thresh):
+            raise RuntimeError('Must input a p-value threshold if using smartn_curves feature. \n Recommended to use config.Ncurve_p_accept to ensure consistency w fit')
+        ncurves = Choose_ncurves(fitparams, samples, lengths, peptide, charge, deut_time, pvalue_thresh, verboise=False)
+    else:
+        ncurves = np.nan * np.ones(len(samples))
+    #allfracs = np.nan*np.ones((len(reps), len(samples), 3)) #same as above for the fracs parameter
+    fracs_vs_len = np.nan*np.ones((len(reps), len(samples))) #only plotting the fraction in the lightest mode
+    for i, (sample, length) in enumerate(zip(samples, lengths)):
+        #print('moo')
+        for r, rep in enumerate(reps):
+            #print(deut_time)
+            fits = hxex.filter_df(fitparams, sample, peptide_ranges = Convert_to_pepstring(*peptide), charge=charge, timept=[deut_time], rep=rep)
+            nboot_list = list(fits['nboot'].unique())
+
+            if len(nboot_list) ==0: #means parameters don't exist. Try the backup
+                if (peptide, charge) in backups.keys():
+                    (backup_peptide, backup_charge) = backups[(peptide, charge)] #replace with the backup, then try the fitting again
+                    fits = hxex.filter_df(fitparams, sample, peptide_ranges = Convert_to_pepstring(*backup_peptide), charge=backup_charge, timept=[deut_time], rep=rep)
+                    nboot_list = list(fits['nboot'].unique())
+
+            if len(nboot_list) > 0:  # a good proxy for the fact that this sample's parameters even exist
+                if np.isnan(ncurves[i]):  # you haven't selected smart n curves, so use the value selected by the origianl hxex algorithm (which may vary wildly from replicate to replicate and lenght to length)
+                    if min(nboot_list) > 0:
+                        best_n_curves = fits[fits['nboot'] == 1]['ncurves'].values[0]  # from bootstrap #1, we can extract how many curves were used
+                    else:
+                        best_n_curves = fits['ncurves'].values[-1]
+                else:
+                    best_n_curves = ncurves[i]
+                params_best_fit = fits[(fits['nboot'] == 0) & (fits['ncurves'] == best_n_curves)]['Fit_Params'].values[0]
+                params_best_fit = [float(x) for x in params_best_fit.split()]
+                scaler, nexs, mus, fracs = hxex.get_params(*params_best_fit, sort=True, norm=True, unpack=True)  # AB: If we removed spurious peaks, the scaler is gonna be off...
+                if ~np.isnan(ignore_mode[i]) and ignore_mode[i] <=len(fracs):
+                    print('ignoring mode {} in peptide {}'.format(ignore_mode[i], peptide))
+                    fracs[ignore_mode[i]-1] = np.nan
+                    fracs = fracs/np.nansum(fracs) #renormalize fractions
+
+                # fracs_vs_len[r,i] = 0
+                # nmodes = len(fracs)
+                # for n in range(nmodes):
+                #     if nexs[n]*mus[n]/(peptide[1] - peptide[0] -2)<=0.2: #the mode is less than 20% exchanged
+                #         fracs_vs_len[r,i]+=fracs[n]
+                nmodes_kept = np.sum(~np.isnan(fracs))
+                protected_mode_index = np.where(~np.isnan(fracs))[0][0]
+                if nmodes_kept>1:
+                    fracs_vs_len[r,i] = fracs[protected_mode_index]
+
+                else: #the fitting was only to one mode
+                    #print('moo')
+                    print('For peptide {} at time {}, the number deuterons is {} and the # of exchangable amides is {}'.format(peptide,sample, nexs[0]*mus[0], peptide[1] - peptide[0] -2))
+                    #if nexs[0]*mus[0]/hxex.count_amides(peptide)>0.3: #if the mode is more than 33% exchanged, then we deem it unfolded
+                    if nexs[protected_mode_index]*mus[protected_mode_index]/(peptide[1] - peptide[0] -2)>0.3: #if the mode is more than 33% exchanged, then we deem it unfolded. WE use a quick and direty way to account for total # of amides--prolines will throw this off
+                        fracs_vs_len[r,i]=0
+                    else:
+                        fracs_vs_len[r,i]=1
+
+    #fracs_vs_len = fracs_vs_len.flatten()
+    fracs_vs_len = np.nanmean(fracs_vs_len, axis=0)
+    if normalize:
+        fracs_vs_len = fracs_vs_len/fracs_vs_len[folded_index]  #divide by the final value which corresponds to fully folded halotag
+
+    if plot:
+        ax.plot(lengths, fracs_vs_len, color=color, label=label, linestyle = linestyle)
+        ax.scatter(lengths, fracs_vs_len, color=color, marker = markerstyle, label = label)
+        ax.set_ylabel('Fraction protected mode')
+    if Return:
+        return fracs_vs_len
     
     
 
@@ -827,17 +924,53 @@ def Filter_spurious_peaks(Y, thresh=5):  #function by AB
     return filteredy
 
 
+from matplotlib.colors import LinearSegmentedColormap
 
-def GetCoreColor(pep):
-    colormap = plt.cm.jet
-    meanvalue = np.mean([pep[0], pep[1]])
-    if meanvalue>217: #it's after the lid
-        meanvalue = (meanvalue - 217) + 129  #stich together the core regions
-    frac = meanvalue/((297-217)+ 129) #the denominator is the TOTAL length of the core region. This frac tells you the fraction of the way through the stiched together core that the peptide is
-    #print('{} : {}'.format(pep, frac))
-    frac = 1- np.exp(-2.4*frac)  #a nonlinear transformation that makes the color change a bit faster towards the n terminus
-    return colormap(frac)
+def modify_colormap_yellow(cmap, darken_factor=0.6):
+    # Get the RGB colors of the colormap
+    colors = cmap(np.linspace(0, 1, 256))
+    # Identify the yellow region based on high R and G and low B
+    yellow_indices = (colors[:, 0] > 0.8) & (colors[:, 1] > 0.8) & (colors[:, 2] < 0.2)
+    # Darken the yellow region
+    colors[yellow_indices, :3] *= darken_factor
+    # Return the modified colormap
+    return LinearSegmentedColormap.from_list('modified_colormap', colors)
+
+
+#import turbo_colormap
+#from matplotlib.colors import ListedColormap
+
+# def GetCoreColor(pep):
+#     #colormap = plt.cm.jet
+#     colormap = modify_colormap_yellow(plt.cm.jet)
+#     #colormap = ListedColormap(turbo_colormap_data)
+#     meanvalue = np.mean([pep[0], pep[1]])
+#     if meanvalue>217: #it's after the lid
+#         meanvalue = (meanvalue - 217) + 129  #stich together the core regions
+#     frac = meanvalue/((297-217)+ 129) #the denominator is the TOTAL length of the core region. This frac tells you the fraction of the way through the stiched together core that the peptide is
+#     #print('{} : {}'.format(pep, frac))
+#     frac = 1- np.exp(-2.4*frac)  #a nonlinear transformation that makes the color change a bit faster towards the n terminus
+#     return colormap(frac)
     
+def GetCoreColor(pep):
+    meanvalue = np.mean([pep[0], pep[1]])
+    if 0<=meanvalue<=25:
+        color = 'darkblue'
+    elif 25<=meanvalue<=50:
+        color = 'blue'
+    elif 50<=meanvalue<=75:
+        color = 'darkcyan'
+    elif 75<=meanvalue<=100:
+        color = 'green'
+    elif 100<=meanvalue<=130:
+        color = 'olive'
+    elif 217<=meanvalue<=250:
+        color = 'goldenrod'
+    elif 250<=meanvalue<=275:
+        color = 'red'  
+    else:
+        color = 'maroon'
+    return color
     
 def GetLidColor(pep):
     colormap = plt.cm.RdPu
@@ -851,3 +984,94 @@ def GetLidColor(pep):
     return colormap(frac)
     
     
+def Write_pml(avg_res_fdeut, key, length, full_prot_len, output_dir, headerpath):
+    """
+    Takes as input a dictionary whose keys correspond to sub-dictionaries for the respective lenghts
+    Within each subdictionary, the keys are residue in one indexing and values tell you the fraction deuterated (or can also be fraction heavy mode) for each residue
+    Also requires a header to give instructions on how to color things. ONe can be produced from a colormap using the next function
+
+    It then writes a .pml file in output_dir to visualize residue level deuteration
+
+    """
+    outputpath = '{}/{}.pml'.format(output_dir, key)
+    headerstr = ''
+    with open(headerpath) as headeropen:
+        for line in headeropen.readlines():
+            headerstr = '{}{}'.format(headerstr, line)
+    headeropen.close()
+
+    with open(outputpath, 'w') as outputopen:
+        outputopen.write(headerstr)
+        for r, fdeut in avg_res_fdeut[key].items():
+            if not np.isnan(fdeut):
+                if fdeut>0.1:
+                    string = str(int(100*fdeut))
+                    if len(string)<2:
+                        string = '{}{}'.format(0, string)
+                    string = '{}x{}'.format(string[0], string[1])
+                else:
+                    string='1x0'
+            
+                writestring = 'color deutColor{},resi {}-{}\n'.format(string, r,r)
+                outputopen.write(writestring)
+        outputopen.write('\ndeselect\n')
+    
+        outputopen.write('select exittunnel, resi {}-{}\n'.format(length-35, length))
+        outputopen.write('hide cartoon, exittunnel \nshow ribbon, exittunnel \ncolor grey40, exittunnel \n')
+    
+        if length<full_prot_len:
+            #print('moo')
+            for r in range(length+1, full_prot_len+1):
+                outputopen.write('remove resi {}\n'.format(r))
+            #outputopen.write('select absent, resi {}-{}\n'.format(length+1, full_prot_len))
+            #outputopen.write('delete absent\n')        
+    outputopen.close()
+
+ 
+
+
+def generate_colormap_header(output_path, cmap='hot'):
+    """
+    This takes a colormap from matplotlib and extracts from it 100 different colors and 
+    converts it to a header file for use with the previous Write_pml function
+    Thanks GPT!!
+    """
+    # Create the colormap
+    colormap = plt.cm.get_cmap(cmap, 100)
+    
+    # Open the header file for writing
+    with open(output_path, 'w') as f:
+        for i in range(100):
+            # Get RGB values from the colormap
+            r, g, b, _ = colormap(i / 99)
+            
+            # Scale RGB values to [0, 1] range
+            r, g, b = round(r, 3), round(g, 3), round(b, 3)
+            
+            # Map i to your "1x0", "1x1", etc. format
+            tens = i // 10
+            units = i % 10
+            color_name = f"deutColor{tens}x{units}"
+            
+            # Write PyMOL color setting
+            f.write(f"set_color {color_name}=[{r},{g},{b}]\n")
+    
+        f.write('set_color neutral=[1.000,1.000,1.000]\n \nhide everything \nshow cartoon \ncolor neutral,all\n')
+    print(f"New header file saved to {output_path}")
+
+
+def Make_colorbar(cmap, spacing=0.25):
+    #make a color bar for the cm with the help of GPT
+    fig, ax = plt.subplots(figsize=(1, 6))
+    # Create a scalar mappable object for the colorbar
+    norm = plt.Normalize(vmin=0, vmax=1)
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+
+    # Add the colorbar to the plot
+    cbar = fig.colorbar(sm, cax=ax, orientation='vertical', ticks=np.arange(0, 1+spacing, spacing))
+    cbar.set_label('Frac. heavy peak', rotation=270, labelpad=30, fontsize=20,)
+    cbar.ax.set_yticklabels([f'{x:.2f}' for x in np.arange(0, 1+spacing, spacing)], fontsize=20)
+
+    # Display the color bar
+    plt.show()
